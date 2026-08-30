@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>班級扭蛋機</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;800&display=swap');
+@font-face{
+  font-family: 'BoutiqueBitmap9x9';
+  src: url('https://cdn.jsdelivr.net/gh/scott0107000/BoutiqueBitmap9x9@main/BoutiqueBitmap9x9_1.93.ttf') format('truetype');
+  font-display: swap;
+}
+
+:root{
+  --bg:#070F34;
+  --panel:#0D1B54;
+  --panel2:#101F63;
+  --cyan:#03D8F3;
+  --blue:#00B8FF;
+  --green:#00FF9F;
+  --magenta:#D600FF;
+  --purple:#BD00FF;
+  --text:#E9FBFF;
+  --dim:#7C8FD6;
+}
+*{ box-sizing:border-box; }
+html,body{ margin:0; padding:0; }
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'BoutiqueBitmap9x9','Noto Sans TC', monospace;
+  font-size:23px;
+  min-height:100vh;
+  position:relative;
+  overflow-x:hidden;
+}
+body::before{
+  content:'';
+  position:fixed; inset:0; pointer-events:none; z-index:200;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 1px, transparent 2px, transparent 4px);
+  mix-blend-mode:overlay; opacity:0.35;
+}
+h1,h2,h3,.pixel{ font-family:'BoutiqueBitmap9x9','Noto Sans TC', monospace; }
+#app{ max-width:640px; margin:0 auto; padding:18px 14px 50px; position:relative; z-index:1; }
+.hidden{ display:none !important; }
+
+/* ---------- generic pixel widgets ---------- */
+.title{
+  font-size:clamp(15px,4.5vw,22px);
+  text-align:center; color:var(--cyan); margin:6px 0 18px;
+  text-shadow:0 0 8px rgba(3,216,243,0.7), 3px 3px 0 #000;
+}
+.panel{
+  background:var(--panel);
+  border:3px solid var(--blue);
+  box-shadow:0 0 0 3px #000, 0 0 18px rgba(0,184,255,0.35);
+  padding:16px; margin-bottom:16px;
+}
+.btn{
+  font-family:'BoutiqueBitmap9x9','Noto Sans TC',monospace; font-size:14px; color:#03102b; cursor:pointer;
+  background:var(--green); border:none; padding:14px 16px;
+  box-shadow:4px 4px 0 #000; text-align:center;
+}
+.btn:active{ transform:translate(3px,3px); box-shadow:1px 1px 0 #000; }
+.btn.blue{ background:var(--blue); color:#02122b; }
+.btn.magenta{ background:var(--magenta); color:#fff; }
+.btn.purple{ background:var(--purple); color:#fff; }
+.btn.ghost{ background:transparent; color:var(--cyan); border:2px solid var(--cyan); box-shadow:none; }
+.btn.wide{ width:100%; display:block; }
+.btn:disabled{ opacity:0.4; cursor:default; }
+.row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.row.between{ justify-content:space-between; }
+label.small{ font-size:17px; color:var(--dim); display:block; margin:8px 0 4px; }
+input[type=text],input[type=password],input[type=number]{
+  font-family:'BoutiqueBitmap9x9','Noto Sans TC',monospace; font-size:23px; background:#02092A; color:var(--text);
+  border:2px solid var(--blue); padding:9px 10px; width:100%;
+}
+input:focus{ outline:none; border-color:var(--green); }
+.tabbar{ display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
+.tabbtn{
+  flex:1; min-width:70px; font-family:'BoutiqueBitmap9x9','Noto Sans TC',monospace; font-size:12px; padding:10px 4px;
+  background:var(--panel2); color:var(--dim); border:2px solid var(--blue); cursor:pointer; text-align:center;
+}
+.tabbtn.active{ background:var(--blue); color:#02122b; }
+.toast{
+  position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(20px);
+  background:var(--magenta); color:#fff; padding:10px 18px; font-family:'BoutiqueBitmap9x9','Noto Sans TC',monospace;
+  font-size:13px; opacity:0; transition:all 0.25s; z-index:300; border:2px solid #fff;
+}
+.toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+.linkrow{ display:flex; align-items:center; justify-content:center; gap:10px; margin-top:14px; }
+.linkrow a{ color:var(--dim); font-size:17px; text-decoration:underline; cursor:pointer; }
+
+/* ---------- role select ---------- */
+.role-grid{ display:flex; flex-direction:column; gap:14px; margin-top:30px; }
+.role-card{
+  background:var(--panel); border:3px solid var(--cyan); padding:22px; text-align:center; cursor:pointer;
+  box-shadow:0 0 0 3px #000, 0 0 16px rgba(3,216,243,0.35);
+}
+.role-card:active{ transform:scale(0.98); }
+.role-card .emoji{ font-size:40px; display:block; margin-bottom:10px; }
+.role-card .label{ font-family:'BoutiqueBitmap9x9','Noto Sans TC',monospace; font-size:16px; color:var(--green); }
+
+/* ---------- items grid (圖鑑) ---------- */
+.item-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.item-cell{
+  background:var(--panel2); border:2px solid var(--blue); padding:8px; text-align:center; cursor:pointer;
+  position:relative;
+}
+.item-cell.owned{ border-color:var(--green); box-shadow:0 0 10px rgba(0,255,159,0.4); }
+.item-cell img{ width:100%; aspect-ratio:1/1; object-fit:contain; image-rendering:pixelated; background:#02092A; }
+.item-cell.locked img{ filter:brightness(0) saturate(100%); opacity:0.55; }
+.item-cell .num{ position:absolute; top:2px; left:4px; font-size:13px; color:var(--dim); font-family:'BoutiqueBitmap9x9','Noto Sans TC',monospace;}
+.item-cell .nm{ font-size:16px; margin-top:4px; color:var(--text); }
+.item-cell.locked .nm{ color:var(--dim); }
+.item-cell .spTag{ position:absolute; top:2px; right:2px; font-size:15px; }
+.item-cell.avatarpick::after{ content:'選為頭像'; display:block; font-size:13px; color:var(--purple); margin-top:2px; }
+
+/* ---------- student roster / classmates ---------- */
+.student-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.student-card{
+  background:var(--panel2); border:2px solid var(--cyan); padding:8px; text-align:center; cursor:pointer;
+}
+.student-card img,.avatar-img{ width:100%; aspect-ratio:1/1; object-fit:contain; background:#02092A; image-rendering:pixelated; }
+.student-card .nm{ font-size:15px; margin-top:4px; }
+.avatar-header{ display:flex; align-items:center; gap:10px; }
+.avatar-header .avatar-img{ width:46px; height:46px; border:2px solid var(--green); }
+
+/* ---------- gacha machine ---------- */
+.machine{
+  width:220px; margin:20px auto 6px; background:var(--panel2); border:4px solid var(--magenta);
+  box-shadow:0 0 0 4px #000, 0 0 24px rgba(214,0,255,0.5); padding:16px; text-align:center;
+}
+.machine .screen{
+  background:#02092A; border:2px solid var(--cyan); padding:14px 6px; font-size:25px; color:var(--cyan);
+  margin-bottom:12px; min-height:34px; display:flex; align-items:center; justify-content:center;
+}
+.machine.spinning .screen{ animation:flicker 0.15s infinite; }
+@keyframes flicker{ 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+.ticket-tag{ text-align:center; font-family:'BoutiqueBitmap9x9','Noto Sans TC',monospace; font-size:14px; color:var(--green); margin:8px 0 4px; }
+
+.result-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(90px,1fr)); gap:10px; margin-top:14px; }
+
+/* ---------- 像素扭蛋膠囊 ---------- */
+.capsule-track{ display:flex; justify-content:center; gap:12px; min-height:56px; align-items:flex-start; margin-top:12px; flex-wrap:wrap; }
+.pxcap{
+  width:44px; height:44px; position:relative;
+  transform:translateY(-46px) scale(0.6); opacity:0;
+  transition: transform 0.45s cubic-bezier(.34,1.6,.64,1), opacity 0.25s;
+}
+.pxcap.drop{ transform:translateY(0) scale(1); opacity:1; }
+.pxcap-top,.pxcap-bottom{
+  position:absolute; left:0; width:100%; height:50%;
+  box-shadow: inset 0 0 0 2px #000;
+  transition: transform 0.4s ease, opacity 0.4s ease;
+}
+.pxcap-top{ top:0; }
+.pxcap-bottom{ bottom:0; background:#EAF6FF; }
+.pxcap.open .pxcap-top{ transform:translate(-16px,-20px) rotate(-30deg); opacity:0; }
+.pxcap.open .pxcap-bottom{ transform:translate(16px,20px) rotate(30deg); opacity:0; }
+.pxcap.shaking{ animation: pxcap-shake 0.25s ease-in-out infinite; }
+@keyframes pxcap-shake{ 0%,100%{ transform:translateX(-2px) rotate(-4deg);} 50%{ transform:translateX(2px) rotate(4deg);} }
+.result-card{
+  background:var(--panel); border:3px solid var(--green); padding:8px; text-align:center;
+  animation:pop 0.4s cubic-bezier(.3,1.6,.6,1);
+}
+.result-card.special{ border-color:var(--purple); box-shadow:0 0 14px rgba(189,0,255,0.6); }
+.result-card img{ width:100%; aspect-ratio:1/1; object-fit:contain; image-rendering:pixelated; background:#02092A;}
+.result-card .nm{ font-size:16px; margin-top:4px; }
+@keyframes pop{ 0%{transform:scale(0.2) rotate(-8deg); opacity:0;} 100%{transform:scale(1) rotate(0);opacity:1;} }
+
+/* ---------- confetti ---------- */
+.pxconf{ position:fixed; top:-16px; width:8px; height:8px; z-index:250; pointer-events:none; animation:pxfall linear forwards; }
+@keyframes pxfall{ to{ transform:translateY(105vh) translateX(var(--dx,0)) rotate(var(--rot,180deg)); opacity:0.85; } }
+
+/* item form */
+.form-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.form-grid .full{ grid-column:1/-1; }
+.checkline{ display:flex; align-items:center; gap:8px; font-size:18px; }
+.item-list-row{
+  display:flex; align-items:center; gap:10px; padding:8px; border-bottom:1px solid var(--panel2);
+}
+.item-list-row img{ width:40px; height:40px; object-fit:contain; background:#02092A; image-rendering:pixelated; }
+.item-list-row .meta{ flex:1; font-size:17px; }
+.item-list-row .meta b{ color:var(--green); }
+
+.teacher-student-row{ padding:10px 0; border-bottom:1px solid var(--panel2); }
+.modal-overlay{
+  position:fixed; inset:0; background:rgba(2,9,42,0.9); z-index:150; display:flex; align-items:center;
+  justify-content:center; padding:16px;
+}
+.modal-box{
+  background:var(--panel); border:3px solid var(--cyan); max-width:480px; width:100%; max-height:85vh;
+  overflow-y:auto; padding:16px;
+}
+
+/* ---------- 圓角微調：保留像素配色與邊框，但收掉銳利直角 ---------- */
+.panel, .role-card, .item-cell, .item-list-row, .modal-box, .student-card,
+.result-card, .machine, .teacher-student-row, .picker-panel{ border-radius:16px; }
+.body-box{ border-radius:0 0 22px 22px; }
+.window{ border-radius:10px; }
+.tray{ border-radius:12px; }
+.chute{ border-radius:0 0 8px 8px; }
+.btn, .tabbtn, .step-btn, .del-btn, .emoji-btn, .gear-btn{ border-radius:12px; }
+.toast{ border-radius:999px; }
+input[type=text], input[type=password], input[type=number], input[type=file]{ border-radius:10px; }
+.avatar-img, .student-card img, .item-cell img, .result-card img, .item-list-row img{ border-radius:8px; }
+.pxcap-top{ border-radius:14px 14px 4px 4px; }
+.pxcap-bottom{ border-radius:4px 4px 14px 14px; }
+</style>
+</head>
+<body>
+<div id="app"><div style="text-align:center;margin-top:80px;animation:pixblink 0.8s steps(2) infinite;" class="pixel">LOADING...</div></div>
+<style>@keyframes pixblink{ 0%,100%{opacity:1;} 50%{opacity:0.35;} }</style>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============== 儲存輔助（改為呼叫 Google Apps Script API） ============== */
+// 部署好 Apps Script 之後，把網址貼在這裡（結尾應該是 /exec）
+const API_BASE_URL = 'https://script.google.com/macros/s/AKfycbwlCUOyoavHeYDo42KxY_5ltTtul2HeDLMKBxEoHnNcPTE3fnX7sSGEWr87YYa1yOKr3g/exec';
+
+async function apiGet(params){
+  const url = API_BASE_URL + '?' + new URLSearchParams(params).toString();
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('API 錯誤 ' + res.status);
+  return await res.json();
+}
+async function apiPost(body){
+  const res = await fetch(API_BASE_URL, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'}, // 用 text/plain 避免瀏覽器觸發 CORS 預檢請求
+    body: JSON.stringify(body)
+  });
+  if(!res.ok) throw new Error('API 錯誤 ' + res.status);
+  return await res.json();
+}
+
+let storageAvailable = false;
+async function waitForStorage(){
+  if(!API_BASE_URL || API_BASE_URL.indexOf('PUT_YOUR_') === 0) return false;
+  try{ await apiGet({action:'get', key:'__ping__'}); return true; }
+  catch(e){ return false; }
+}
+
+async function getShared(key, fallback){
+  if(!storageAvailable) return fallback;
+  try{
+    const r = await apiGet({action:'get', key});
+    return (r && r.value !== null && r.value !== undefined && r.value !== '') ? JSON.parse(r.value) : fallback;
+  }catch(e){ return fallback; }
+}
+async function setShared(key, val){
+  if(!storageAvailable){ toast('⚠️ 連不到後端資料庫，資料不會保留'); return false; }
+  try{ await apiPost({action:'set', key, value: JSON.stringify(val)}); return true; }
+  catch(e){ console.error(e); toast('❌ 儲存失敗：'+(e && e.message ? e.message : '請檢查網路連線')); return false; }
+}
+// 個人裝置資料（這台裝置是誰、有沒有記住教師身份）改存在瀏覽器本機，不用跑一趟後端
+async function getPersonal(key, fallback){
+  try{ const v = localStorage.getItem(key); return v!==null ? JSON.parse(v) : fallback; }
+  catch(e){ return fallback; }
+}
+async function setPersonal(key, val){
+  try{ localStorage.setItem(key, JSON.stringify(val)); return true; }
+  catch(e){ return false; }
+}
+
+function showConfirm(message){
+  return new Promise(resolve=>{
+    const overlay = document.createElement('div'); overlay.className='modal-overlay';
+    overlay.innerHTML = `<div class="modal-box" style="max-width:300px;text-align:center">
+      <p style="font-size:22px;margin:6px 0 18px;color:var(--text)">${esc(message)}</p>
+      <div class="row" style="justify-content:center;gap:10px">
+        <button class="btn magenta" id="confirmYes">確定</button>
+        <button class="btn ghost" id="confirmNo">取消</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const done = (val)=>{ overlay.remove(); resolve(val); };
+    overlay.querySelector('#confirmYes').onclick = ()=>done(true);
+    overlay.querySelector('#confirmNo').onclick = ()=>done(false);
+    overlay.onclick = (e)=>{ if(e.target===overlay) done(false); };
+  });
+}
+
+function uid(){ return 'x'+Math.random().toString(36).slice(2,10); }
+function esc(s){ const d=document.createElement('div'); d.textContent = s==null?'':String(s); return d.innerHTML; }
+function toast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),1800);
+}
+function fileToDataURL(file){
+  return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); });
+}
+function resizeImageFile(file, maxSize){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = ()=>{
+        let w = img.width, h = img.height;
+        if(w > maxSize || h > maxSize){
+          const scale = Math.min(maxSize/w, maxSize/h);
+          w = Math.max(1, Math.round(w*scale));
+          h = Math.max(1, Math.round(h*scale));
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        ctx.clearRect(0,0,w,h);
+        ctx.drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ============== 全域資料 ============== */
+let config, items, students;
+let myRole = null, myStudentId = null, teacherRemembered = false;
+let screen = 'loading';
+let studentTab = 'draw';
+let teacherTab = 'items';
+let editingItemId = null;
+
+function defaultConfig(){ return { className:'我的班級', teacherPin:'0000', boostMultiplier:3, idleText:'🎁 準備好了嗎？' }; }
+
+async function loadItemsList(){
+  if(!storageAvailable) return [];
+  try{
+    const r = await apiGet({action:'list', prefix:'item:'});
+    const keys = (r && r.keys) || [];
+    const values = (r && r.values) || [];
+    const arr = [];
+    for(let i=0;i<keys.length;i++){
+      try{ if(values[i]) arr.push(JSON.parse(values[i])); }
+      catch(e){ /* 略過讀取失敗的單一獎品 */ }
+    }
+    return arr;
+  }catch(e){ return []; }
+}
+async function saveItemToStorage(item){
+  if(!storageAvailable){ toast('⚠️ 連不到後端資料庫，資料不會保留'); return false; }
+  try{ await apiPost({action:'set', key:'item:'+item.id, value: JSON.stringify(item)}); return true; }
+  catch(e){ console.error(e); toast('❌ 儲存失敗：'+(e && e.message ? e.message : '請確認網路連線')); return false; }
+}
+async function deleteItemFromStorage(id){
+  if(!storageAvailable) return false;
+  try{ await apiPost({action:'delete', key:'item:'+id}); return true; }
+  catch(e){ console.error(e); toast('❌ 刪除失敗：'+(e && e.message ? e.message : '')); return false; }
+}
+
+async function loadAll(){
+  config = await getShared('gacha-config', defaultConfig());
+  items = await loadItemsList();
+  students = await getShared('gacha-students', {});
+  myRole = await getPersonal('gacha-my-role', null);
+  myStudentId = await getPersonal('gacha-my-student-id', null);
+  teacherRemembered = await getPersonal('gacha-teacher-ok', false);
+}
+
+/* ============== 主渲染 ============== */
+const app = document.getElementById('app');
+
+function render(){
+  if(screen==='parent') return renderParent();
+  if(screen==='parentAll') return renderParentAll();
+  if(screen==='role') return renderRole();
+  if(screen==='studentAuth') return renderStudentAuth();
+  if(screen==='studentHome') return renderStudentHome();
+  if(screen==='teacherAuth') return renderTeacherAuth();
+  if(screen==='teacherHome') return renderTeacherHome();
+}
+
+let drawing = false;
+
+let lastMyWriteAt = 0;
+function mergeStudentsInPlace(fetched){
+  // 保留每個學生「物件本身」的參照身份，只更新內容
+  // 這樣抽獎頁按鈕已經綁定好的 me 物件會一直是「活的」，不會因為背景同步整包換掉而變成孤兒物件
+  if(!fetched) return;
+  const fetchedIds = new Set(Object.keys(fetched));
+  for(const id of Object.keys(students)){ if(!fetchedIds.has(id)) delete students[id]; }
+  for(const id of fetchedIds){
+    if(students[id]){ Object.assign(students[id], fetched[id]); }
+    else { students[id] = fetched[id]; }
+  }
+}
+
+async function refreshSharedData(){
+  config = await getShared('gacha-config', config);
+  items = await loadItemsList();
+  // 學生剛存檔的幾秒內，先不要用輪詢抓回的舊資料蓋掉自己剛抽到的東西（避免圖鑑一時顯示 ??? 又消失）
+  if(screen==='studentHome' && (Date.now()-lastMyWriteAt < 4000)) return;
+  const fetched = await getShared('gacha-students', null);
+  mergeStudentsInPlace(fetched);
+}
+
+// 學生端／家長頁：定期背景同步教師後台的最新資料
+setInterval(async ()=>{
+  if(screen==='studentHome' || screen==='parent' || screen==='parentAll'){
+    const prevItems = JSON.stringify(items);
+    const prevStudents = JSON.stringify(students);
+    const prevConfig = JSON.stringify(config);
+    await refreshSharedData();
+    if(drawing) return; // 抽獎動畫進行中先不要整頁重畫，避免結果被洗掉
+    const changed = JSON.stringify(items)!==prevItems || JSON.stringify(students)!==prevStudents || JSON.stringify(config)!==prevConfig;
+    if(screen==='studentHome' && studentTab==='draw'){
+      // 抽獎頁只悄悄更新券數，避免蓋掉剛剛抽到的結果
+      const me = students[myStudentId];
+      const tag = document.querySelector('.ticket-tag');
+      if(me && tag) tag.textContent = `🎟️ 抽獎券：${me.tickets}`;
+    } else if(changed){
+      render(); // 只有資料真的變了才整頁重畫，避免畫面一直閃爍刷新
+    }
+  }
+}, 5000);
+
+// 切回這個分頁／平板從休眠喚醒時，立刻同步一次
+document.addEventListener('visibilitychange', async ()=>{
+  if(document.visibilityState==='visible' && (screen==='studentHome' || screen==='parent' || screen==='parentAll')){
+    await refreshSharedData();
+    if(!drawing) render();
+  }
+});
+
+(async function init(){
+  storageAvailable = await waitForStorage();
+  if(!storageAvailable){
+    const notConfigured = !API_BASE_URL || API_BASE_URL.indexOf('PUT_YOUR_') === 0;
+    app.innerHTML = `<div class="panel" style="border-color:var(--magenta);margin-top:40px">
+      <h2 class="pixel" style="font-size:16px;color:var(--magenta)">⚠️ 連不到資料庫</h2>
+      <p style="color:var(--text);font-size:20px;line-height:1.6">
+      ${notConfigured
+        ? '這個網頁還沒有設定後端 API 網址。請先照教學部署好 Google Apps Script，把網址貼到程式碼最上面的 <code>API_BASE_URL</code>。'
+        : '目前連不上後端的 Google Apps Script API，可能是網址錯誤、部署權限沒設成「任何人」、或網路連線問題。請確認 Apps Script 已經部署成 Web App，且存取權限是「任何人」。'}
+      </p>
+    </div>`;
+    return;
+  }
+  await loadAll();
+  const hash = location.hash;
+  if(hash.startsWith('#parent=')){ screen='parent'; parentTargetId = decodeURIComponent(hash.slice(8)); render(); return; }
+  if(hash==='#parents'){ screen='parentAll'; render(); return; }
+  if(myRole==='student' && myStudentId && students[myStudentId]){ screen='studentHome'; render(); return; }
+  if(myRole==='teacher' && teacherRemembered){ screen='teacherHome'; render(); return; }
+  // 依網址標記直接導向對應的登入頁（教師連結 #teacher／學生連結 #student）
+  if(hash==='#teacher'){ screen='teacherAuth'; render(); return; }
+  if(hash==='#student'){ screen='studentAuth'; render(); return; }
+  screen='role';
+  render();
+})();
+
+/* ============== 角色選擇 ============== */
+function renderRole(){
+  app.innerHTML = `
+    <h1 class="title">🕹️ 班級扭蛋機 🕹️</h1>
+    <div class="role-grid">
+      <div class="role-card" id="goStudent"><span class="emoji">🎮</span><span class="label">學生登入</span></div>
+      <div class="role-card" id="goTeacher"><span class="emoji">🛠️</span><span class="label">教師後台</span></div>
+    </div>
+    <div class="panel" style="margin-top:20px">
+      <div style="font-size:17px;color:var(--dim);margin-bottom:8px">💡 小技巧：把下面兩個專屬連結分別存到平板和自己手機，之後打開就直接進對應頁面，不用再選一次。</div>
+      <div class="row between" style="margin-bottom:6px">
+        <span style="font-size:17px">學生專用：</span>
+        <a id="copyStudentLink" style="color:var(--cyan);cursor:pointer;text-decoration:underline">複製連結</a>
+      </div>
+      <div class="row between">
+        <span style="font-size:17px">教師專用：</span>
+        <a id="copyTeacherLink" style="color:var(--cyan);cursor:pointer;text-decoration:underline">複製連結</a>
+      </div>
+    </div>
+  `;
+  document.getElementById('goStudent').onclick = ()=>{ screen='studentAuth'; render(); };
+  document.getElementById('goTeacher').onclick = ()=>{ screen='teacherAuth'; render(); };
+  const base = location.href.split('#')[0];
+  document.getElementById('copyStudentLink').onclick = ()=>{
+    const url = base+'#student';
+    navigator.clipboard && navigator.clipboard.writeText(url).then(()=>toast('學生連結已複製！')).catch(()=>toast(url));
+  };
+  document.getElementById('copyTeacherLink').onclick = ()=>{
+    const url = base+'#teacher';
+    navigator.clipboard && navigator.clipboard.writeText(url).then(()=>toast('教師連結已複製！')).catch(()=>toast(url));
+  };
+}
+
+/* ============== 學生登入 ============== */
+function renderStudentAuth(){
+  const rosterHtml = Object.entries(students).map(([id,s])=>`
+    <div class="student-card" data-id="${id}">
+      <img src="${s.avatarItemId && itemById(s.avatarItemId) ? itemById(s.avatarItemId).image : pixelPlaceholder()}">
+      <div class="nm">${esc(s.name)}</div>
+    </div>`).join('');
+
+  app.innerHTML = `
+    <h1 class="title">🎮 學生登入</h1>
+    <div class="panel">
+      <label class="small">請點選你的名字</label>
+      <div class="student-grid">${rosterHtml || '<div style="color:var(--dim)">老師還沒有新增學生名單</div>'}</div>
+    </div>
+    <div class="linkrow"><a id="backRole">← 返回</a></div>
+  `;
+  document.getElementById('backRole').onclick = ()=>{ screen='role'; render(); };
+  document.querySelectorAll('.student-card').forEach(c=>{
+    c.onclick = ()=> openStudentLoginModal(c.dataset.id);
+  });
+}
+
+function openStudentLoginModal(id){
+  const s = students[id]; if(!s) return;
+  const overlay = document.createElement('div'); overlay.className='modal-overlay';
+  overlay.innerHTML = `<div class="modal-box" style="max-width:320px">
+    <div class="row between"><h2 class="pixel" style="font-size:15px;color:var(--green)">嗨，${esc(s.name)}！</h2>
+    <a style="color:var(--dim);cursor:pointer" id="closeLoginModal">✕</a></div>
+    <label class="small">請輸入你的專屬密碼</label>
+    <input type="password" id="loginPw" placeholder="密碼" inputmode="numeric">
+    <button class="btn wide" style="margin-top:12px" id="loginGo">登入</button>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#closeLoginModal').onclick = ()=> overlay.remove();
+  const pwInput = overlay.querySelector('#loginPw');
+  pwInput.focus();
+  const tryLogin = async ()=>{
+    if(pwInput.value === (s.password||'')){
+      myStudentId = id; myRole='student';
+      await setPersonal('gacha-my-role','student');
+      await setPersonal('gacha-my-student-id', myStudentId);
+      overlay.remove();
+      screen='studentHome'; studentTab='draw'; render();
+    } else toast('密碼不對喔，再試一次！');
+  };
+  overlay.querySelector('#loginGo').onclick = tryLogin;
+  pwInput.addEventListener('keydown', e=>{ if(e.key==='Enter') tryLogin(); });
+}
+
+/* ============== 學生主頁 ============== */
+function itemById(id){ return items.find(i=>i.id===id); }
+function pixelPlaceholder(){ return 'data:image/svg+xml;utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="60" height="60" fill="#0D1B54"/><text x="30" y="38" font-size="28" text-anchor="middle" fill="#03D8F3">?</text></svg>');
+}
+
+function renderStudentHome(){
+  const me = students[myStudentId];
+  if(!me){ myStudentId=null; myRole=null; setPersonal('gacha-my-role',null); screen='role'; render(); return; }
+
+  app.innerHTML = `
+    <div class="row between avatar-header">
+      <div class="row" style="gap:8px">
+        <img class="avatar-img" src="${me.avatarItemId && itemById(me.avatarItemId) ? itemById(me.avatarItemId).image : pixelPlaceholder()}">
+        <div>
+          <div class="pixel" style="font-size:14px;color:var(--green)">${esc(me.name)}</div>
+          <div style="color:var(--dim);font-size:16px">${esc(config.className)}</div>
+        </div>
+      </div>
+      <a id="switchStudent" style="color:var(--dim);font-size:16px;cursor:pointer;text-decoration:underline">切換身份</a>
+    </div>
+    <div class="tabbar" style="margin-top:14px">
+      <div class="tabbtn ${studentTab==='draw'?'active':''}" data-t="draw">抽獎</div>
+      <div class="tabbtn ${studentTab==='book'?'active':''}" data-t="book">圖鑑</div>
+      <div class="tabbtn ${studentTab==='wall'?'active':''}" data-t="wall">同學牆</div>
+    </div>
+    <div id="tabBody"></div>
+  `;
+  document.getElementById('switchStudent').onclick = async ()=>{
+    await setPersonal('gacha-my-role',null); await setPersonal('gacha-my-student-id',null);
+    myRole=null; myStudentId=null; screen='role'; render();
+  };
+  document.querySelectorAll('.tabbtn').forEach(b=> b.onclick=()=>{ studentTab=b.dataset.t; render(); });
+
+  const body = document.getElementById('tabBody');
+  if(studentTab==='draw') body.innerHTML = drawTabHtml(me);
+  else if(studentTab==='book') body.innerHTML = bookHtml(me, true);
+  else body.innerHTML = wallHtml();
+
+  if(studentTab==='draw') bindDrawEvents(me);
+  if(studentTab==='book') bindBookEvents(me);
+  if(studentTab==='wall') bindWallEvents();
+}
+
+function drawTabHtml(me){
+  return `
+    <div class="ticket-tag">🎟️ 抽獎券：${me.tickets}</div>
+    <div class="machine" id="machine">
+      <div class="screen" id="machineScreen">${esc(config.idleText || '🎁 準備好了嗎？')}</div>
+      <div class="row" style="justify-content:center;gap:10px">
+        <button class="btn magenta" id="draw1">單抽 x1</button>
+        <button class="btn purple" id="draw5">五連抽 x5</button>
+      </div>
+    </div>
+    <div class="capsule-track" id="capsuleTrack"></div>
+    <div class="result-grid" id="resultGrid"></div>
+  `;
+}
+
+function weightedPick(pool){
+  const total = pool.reduce((s,p)=>s+p.weight,0);
+  if(total<=0) return pool[Math.floor(Math.random()*pool.length)];
+  let r = Math.random()*total;
+  for(const p of pool){ if(r<p.weight) return p; r-=p.weight; }
+  return pool[pool.length-1];
+}
+
+function isExhausted(it){ return it.limit && it.limit>0 && (it.claimed||0) >= it.limit; }
+
+function doDraw(count){
+  const pool = items.filter(i=>!isExhausted(i)).map(i=>({...i, _c:(i.claimed||0)}));
+  if(pool.length===0) return null;
+  const results=[];
+  for(let k=0;k<count;k++){
+    const avail = pool.filter(i=> !(i.limit && i.limit>0 && i._c>=i.limit));
+    if(avail.length===0) break;
+    const boosted = avail.map(i=> count===5 && i.special ? {...i, weight:i.weight*config.boostMultiplier} : i);
+    const picked = weightedPick(boosted);
+    const orig = pool.find(p=>p.id===picked.id);
+    if(orig) orig._c++;
+    results.push(picked);
+  }
+  return results;
+}
+
+function playChime(){
+  try{
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx();
+    [392,523.25,659.25].forEach((f,i)=>{
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type='square'; o.frequency.value=f;
+      g.gain.setValueAtTime(0.0001,ctx.currentTime+i*0.1);
+      g.gain.exponentialRampToValueAtTime(0.08,ctx.currentTime+i*0.1+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+i*0.1+0.3);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(ctx.currentTime+i*0.1); o.stop(ctx.currentTime+i*0.1+0.3);
+    });
+  }catch(e){}
+}
+function spawnConfetti(){
+  const colors=['#03D8F3','#00FF9F','#D600FF','#BD00FF','#00B8FF'];
+  for(let i=0;i<24;i++){
+    const p=document.createElement('div'); p.className='pxconf';
+    p.style.left=(10+Math.random()*80)+'vw';
+    p.style.background=colors[Math.floor(Math.random()*colors.length)];
+    p.style.setProperty('--dx',(Math.random()*140-70)+'px');
+    p.style.setProperty('--rot',(Math.random()*720-360)+'deg');
+    p.style.animationDuration=(1.4+Math.random()*1.1)+'s';
+    document.body.appendChild(p); setTimeout(()=>p.remove(),3000);
+  }
+}
+
+function bindDrawEvents(me){
+  const run = async (count)=>{
+    if(items.length===0){ toast('老師還沒有上傳獎品喔！'); return; }
+    if(me.tickets < count){ toast('抽獎券不夠，找老師領取吧！'); return; }
+    if(items.every(isExhausted)){ toast('獎品都被抽完了，請找老師補貨！'); return; }
+    drawing = true;
+    document.getElementById('draw1').disabled=true; document.getElementById('draw5').disabled=true;
+    document.getElementById('machine').classList.add('spinning');
+    document.getElementById('machineScreen').textContent='🎰 轉轉轉...';
+    document.getElementById('resultGrid').innerHTML='';
+    const track = document.getElementById('capsuleTrack');
+    track.innerHTML='';
+    await new Promise(r=>setTimeout(r,900));
+    document.getElementById('machine').classList.remove('spinning');
+
+    const results = doDraw(count) || [];
+    if(results.length===0){ toast('獎品都被抽完了，請找老師補貨！'); drawing=false;
+      document.getElementById('draw1').disabled=false; document.getElementById('draw5').disabled=false; return; }
+
+    // 生成扭蛋膠囊並讓它們一顆顆掉下來
+    document.getElementById('machineScreen').textContent='🎁 扭蛋掉出來了！';
+    const capColors = ['var(--cyan)','var(--green)','var(--magenta)','var(--purple)','var(--blue)'];
+    const caps = results.map((it,i)=>{
+      const cap = document.createElement('div'); cap.className='pxcap';
+      cap.innerHTML = `<div class="pxcap-top" style="background:${capColors[i%capColors.length]}"></div><div class="pxcap-bottom"></div>`;
+      track.appendChild(cap);
+      return cap;
+    });
+    await new Promise(r=>requestAnimationFrame(r));
+    caps.forEach((c,i)=> setTimeout(()=>c.classList.add('drop'), i*130));
+    await new Promise(r=>setTimeout(r, 500 + caps.length*130));
+    caps.forEach(c=>c.classList.add('shaking'));
+    await new Promise(r=>setTimeout(r, 450));
+    caps.forEach(c=>c.classList.remove('shaking'));
+    caps.forEach(c=>c.classList.add('open'));
+
+    // 扣券、發放獎品，並「先確定存檔成功」才去扣限量獎品的名額
+    me.tickets -= count;
+    me.inventory = me.inventory || {};
+    const touched = {};
+    results.forEach(it=>{ me.inventory[it.id]=(me.inventory[it.id]||0)+1; touched[it.id]=(touched[it.id]||0)+1; });
+    const studentsSaved = await setShared('gacha-students', students);
+    if(studentsSaved){
+      lastMyWriteAt = Date.now();
+      for(const [id,cnt] of Object.entries(touched)){
+        const real = itemById(id);
+        if(real && real.limit && real.limit>0){ real.claimed=(real.claimed||0)+cnt; await saveItemToStorage(real); }
+      }
+    } else {
+      toast('❌ 存檔失敗，請檢查網路後重新整理再抽一次');
+    }
+
+    await new Promise(r=>setTimeout(r,350));
+    playChime(); spawnConfetti();
+    document.getElementById('machineScreen').textContent='🎉 恭喜獲得！';
+    const grid = document.getElementById('resultGrid');
+    grid.innerHTML = results.map(it=>`
+      <div class="result-card ${it.special?'special':''}">
+        <img src="${it.image||pixelPlaceholder()}">
+        <div class="nm">${it.special?'✨ ':''}${esc(it.name)}</div>
+      </div>`).join('');
+    document.querySelector('.ticket-tag').textContent = `🎟️ 抽獎券：${me.tickets}`;
+    document.getElementById('draw1').disabled=false; document.getElementById('draw5').disabled=false;
+    drawing = false;
+  };
+  document.getElementById('draw1').onclick = ()=>run(1);
+  document.getElementById('draw5').onclick = ()=>run(5);
+}
+
+function bookHtml(me, allowActions){
+  const list = [...items].sort((a,b)=>a.number-b.number);
+  if(list.length===0) return `<div class="panel">老師還沒有上傳獎品喔！</div>`;
+  return `<div class="panel"><div class="item-grid">${list.map(it=>{
+    const count = (me.inventory && me.inventory[it.id]) || 0;
+    const owned = count > 0;
+    const canConvert = allowActions && count >= 4;
+    const avatarPick = allowActions && owned;
+    return `<div class="item-cell ${owned?'owned':'locked'} ${avatarPick?'avatarpick':''}" data-id="${it.id}" data-owned="${owned?1:0}">
+      <span class="num">#${it.number}</span>
+      ${it.special?'<span class="spTag">✨</span>':''}
+      ${owned && count>1 ? `<span style="position:absolute;bottom:2px;right:4px;font-size:14px;color:var(--yellow,var(--cyan));background:#000;padding:0 4px">x${count}</span>`:''}
+      <img src="${it.image||pixelPlaceholder()}">
+      <div class="nm">${owned? esc(it.name) : '？？？'}</div>
+      ${it.limit?`<div style="font-size:13px;color:var(--magenta)">限量 ${it.claimed||0}/${it.limit}</div>`:''}
+      ${canConvert?`<button class="btn ghost" data-action="convert" data-id="${it.id}" style="margin-top:4px;font-size:12px;padding:6px 4px;width:100%">合成 3→🎟️1</button>`:''}
+    </div>`;
+  }).join('')}</div></div>`;
+}
+function bindBookEvents(me){
+  if(!studentTab) return;
+  document.querySelectorAll('#tabBody [data-action="convert"]').forEach(b=>{
+    b.onclick = async (e)=>{
+      e.stopPropagation();
+      const id = b.dataset.id;
+      const count = (me.inventory && me.inventory[id]) || 0;
+      if(count < 4){ toast('至少要有 4 個（留 1 個、合成 3 個）才能合成喔！'); return; }
+      me.inventory[id] = count - 3;
+      me.tickets = (me.tickets||0) + 1;
+      await setShared('gacha-students', students);
+      lastMyWriteAt = Date.now();
+      toast('合成成功！獲得 1 張抽獎券 🎟️');
+      render();
+    };
+  });
+  document.querySelectorAll('#tabBody .item-cell').forEach(c=>{
+    c.onclick = async ()=>{
+      if(c.dataset.owned!=='1') return;
+      me.avatarItemId = c.dataset.id;
+      await setShared('gacha-students', students);
+      lastMyWriteAt = Date.now();
+      toast('已更新頭像！');
+      render();
+    };
+  });
+}
+
+function wallHtml(){
+  const arr = Object.entries(students);
+  if(arr.length===0) return `<div class="panel">目前還沒有同學名單</div>`;
+  return `<div class="panel"><div class="student-grid">${arr.map(([id,s])=>`
+    <div class="student-card" data-id="${id}">
+      <img src="${s.avatarItemId && itemById(s.avatarItemId) ? itemById(s.avatarItemId).image : pixelPlaceholder()}">
+      <div class="nm">${esc(s.name)}</div>
+    </div>`).join('')}</div></div>`;
+}
+function bindWallEvents(){
+  document.querySelectorAll('#tabBody .student-card').forEach(c=>{
+    c.onclick = ()=> openClassmateModal(c.dataset.id);
+  });
+}
+function openClassmateModal(id){
+  const s = students[id]; if(!s) return;
+  const overlay = document.createElement('div'); overlay.className='modal-overlay';
+  overlay.innerHTML = `<div class="modal-box">
+    <div class="row between"><h2 class="pixel" style="font-size:16px;color:var(--green)">${esc(s.name)} 的圖鑑</h2>
+    <a style="color:var(--dim);cursor:pointer" id="closeModal">✕</a></div>
+    ${bookHtml(s,false)}
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#closeModal').onclick = ()=> overlay.remove();
+  overlay.onclick = (e)=>{ if(e.target===overlay) overlay.remove(); };
+}
+
+/* ============== 教師登入 ============== */
+function renderTeacherAuth(){
+  app.innerHTML = `
+    <h1 class="title">🛠️ 教師後台登入</h1>
+    <div class="panel">
+      <label class="small">請輸入教師 PIN 碼</label>
+      <input type="password" id="pinInput" placeholder="PIN">
+      <label class="checkline" style="margin-top:10px"><input type="checkbox" id="rememberMe"> 記住這台裝置</label>
+      <button class="btn wide blue" style="margin-top:12px" id="pinGo">登入</button>
+    </div>
+    <div class="linkrow"><a id="backRole">← 返回</a></div>
+  `;
+  document.getElementById('backRole').onclick = ()=>{ screen='role'; render(); };
+  document.getElementById('pinGo').onclick = async ()=>{
+    if(document.getElementById('pinInput').value === config.teacherPin){
+      myRole='teacher';
+      await setPersonal('gacha-my-role','teacher');
+      if(document.getElementById('rememberMe').checked){ await setPersonal('gacha-teacher-ok', true); teacherRemembered=true; }
+      screen='teacherHome'; teacherTab='items'; render();
+    } else toast('PIN 碼不對喔！');
+  };
+}
+
+/* ============== 教師後台 ============== */
+function renderTeacherHome(){
+  app.innerHTML = `
+    <div class="row between">
+      <h1 class="title" style="margin:0">🛠️ 教師後台</h1>
+      <a id="logoutTeacher" style="color:var(--dim);font-size:16px;cursor:pointer;text-decoration:underline">登出</a>
+    </div>
+    <div class="tabbar">
+      <div class="tabbtn ${teacherTab==='items'?'active':''}" data-t="items">獎池</div>
+      <div class="tabbtn ${teacherTab==='students'?'active':''}" data-t="students">學生</div>
+      <div class="tabbtn ${teacherTab==='rules'?'active':''}" data-t="rules">抽獎設定</div>
+      <div class="tabbtn ${teacherTab==='settings'?'active':''}" data-t="settings">班級設定</div>
+    </div>
+    <div id="tabBody"></div>
+  `;
+  document.getElementById('logoutTeacher').onclick = async ()=>{
+    await setPersonal('gacha-my-role',null); await setPersonal('gacha-teacher-ok', false);
+    myRole=null; teacherRemembered=false; screen='role'; render();
+  };
+  document.querySelectorAll('.tabbtn').forEach(b=> b.onclick=()=>{ teacherTab=b.dataset.t; editingItemId=null; render(); });
+
+  const body = document.getElementById('tabBody');
+  if(teacherTab==='items') { body.innerHTML = itemsTabHtml(); bindItemsTab(); }
+  else if(teacherTab==='students'){ body.innerHTML = studentsTabHtml(); bindStudentsTab(); }
+  else if(teacherTab==='rules'){ body.innerHTML = rulesTabHtml(); bindRulesTab(); }
+  else { body.innerHTML = settingsTabHtml(); bindSettingsTab(); }
+}
+
+function itemsTabHtml(){
+  const editing = editingItemId ? itemById(editingItemId) : null;
+  const list = [...items].sort((a,b)=>a.number-b.number);
+  return `
+    <div class="panel">
+      <h3 class="pixel" style="font-size:14px;color:var(--green)">${editing?'編輯獎品':'新增獎品'}</h3>
+      <div class="form-grid">
+        <div><label class="small">編號</label><input type="number" id="fNum" value="${editing?editing.number:(items.length?Math.max(...items.map(i=>i.number))+1:1)}"></div>
+        <div><label class="small">機率權重(1-20)</label><input type="number" id="fWeight" min="1" max="20" value="${editing?editing.weight:5}"></div>
+        <div class="full"><label class="small">名稱</label><input type="text" id="fName" value="${editing?esc(editing.name):''}" placeholder="例如：勇者小劍"></div>
+        <div class="full"><label class="small">分類（自由填寫，例如：角色/裝備/道具）</label><input type="text" id="fCat" value="${editing?esc(editing.category):''}" placeholder="角色"></div>
+        <div class="full"><label class="small">圖片（去背 PNG，建議用小尺寸圖示）</label><input type="file" id="fFile" accept="image/png">
+          <div class="row" style="margin-top:6px;align-items:center;gap:8px">
+            <img id="fPreview" src="${editing&&editing.image?editing.image:pixelPlaceholder()}" style="width:44px;height:44px;object-fit:contain;background:#02092A;image-rendering:pixelated;border:2px solid var(--blue)">
+            <span id="fPreviewLabel" style="font-size:16px;color:var(--dim)">${editing&&editing.image?'目前的圖片':'尚未上傳圖片，會顯示問號圖示'}</span>
+          </div>
+        </div>
+        <div class="full checkline"><input type="checkbox" id="fSpecial" ${editing&&editing.special?'checked':''}> 標記為「特別獎勵」（五連抽會提高機率）</div>
+        <div class="full"><label class="small">稀有數量上限（留空或 0 = 不限量）</label><input type="number" id="fLimit" min="0" value="${editing?(editing.limit||0):0}"></div>
+        ${editing?`<div class="full"><label class="small">目前已抽數量（若跟實際不符可以手動修正）</label><input type="number" id="fClaimed" min="0" value="${editing.claimed||0}"></div>`:''}
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="saveItem" style="flex:1">${editing?'儲存修改':'新增獎品'}</button>
+        ${editing?'<button class="btn ghost" id="cancelEdit">取消</button>':''}
+      </div>
+    </div>
+    <div class="panel">
+      <h3 class="pixel" style="font-size:14px;color:var(--cyan)">獎池清單（${items.length}）</h3>
+      ${list.map(it=>`
+        <div class="item-list-row">
+          <img src="${it.image||pixelPlaceholder()}">
+          <div class="meta">#${it.number} <b>${esc(it.name)}</b> ${it.special?'✨':''}<br><span style="color:var(--dim)">${esc(it.category||'')} · 權重 ${it.weight}${it.limit?` · 限量 ${it.claimed||0}/${it.limit}`:' · 不限量'}</span></div>
+          <a data-id="${it.id}" class="editBtn" style="color:var(--cyan);cursor:pointer;margin-right:8px">編輯</a>
+          <a data-id="${it.id}" class="delBtn" style="color:var(--magenta);cursor:pointer">刪除</a>
+        </div>`).join('') || '<div style="color:var(--dim)">尚未新增任何獎品</div>'}
+    </div>
+  `;
+}
+function bindItemsTab(){
+  let pendingImage = null; // 選檔當下就讀好，避免儲存當下再重讀可能出現的時間差問題
+  const fileEl0 = document.getElementById('fFile');
+  if(fileEl0) fileEl0.addEventListener('change', async ()=>{
+    if(fileEl0.files && fileEl0.files[0]){
+      try{
+        pendingImage = await fileToDataURL(fileEl0.files[0]);
+        document.getElementById('fPreview').src = pendingImage;
+        document.getElementById('fPreviewLabel').textContent = `已選擇這張圖片（約 ${Math.round(pendingImage.length/1024)} KB）`;
+      }catch(e){ pendingImage=null; toast('圖片讀取失敗，請換一張圖'); }
+    }
+  });
+  document.getElementById('saveItem').onclick = async ()=>{
+    const num = parseInt(document.getElementById('fNum').value,10)||1;
+    const weight = parseInt(document.getElementById('fWeight').value,10)||1;
+    const name = document.getElementById('fName').value.trim();
+    const cat = document.getElementById('fCat').value.trim();
+    const special = document.getElementById('fSpecial').checked;
+    const limit = parseInt(document.getElementById('fLimit').value,10)||0;
+    const claimedInput = document.getElementById('fClaimed');
+    if(!name){ toast('請輸入獎品名稱'); return; }
+    const saveBtn = document.getElementById('saveItem');
+    let image = pendingImage || (editingItemId ? itemById(editingItemId).image : '') || '';
+    if(image && image.length > 3.5*1024*1024){ toast('⚠️ 這張圖有點大，如果存檔失敗請換小一點的圖'); }
+    if(!image){ toast('⚠️ 這個獎品沒有圖片，圖鑑會先顯示問號圖示'); }
+    const overrides = {number:num,weight,name,category:cat,special,image,limit};
+    if(editingItemId && claimedInput){ overrides.claimed = parseInt(claimedInput.value,10)||0; }
+    const newItem = editingItemId
+      ? Object.assign({}, itemById(editingItemId), overrides)
+      : {id:uid(),number:num,weight,name,category:cat,special,image,limit,claimed:0};
+    saveBtn.disabled = true; saveBtn.textContent = '儲存中…';
+    const ok = await saveItemToStorage(newItem);
+    if(ok){
+      if(editingItemId){ Object.assign(itemById(editingItemId), newItem); }
+      else { items.push(newItem); }
+      editingItemId=null;
+      toast(image ? `已儲存！（圖片約 ${Math.round(image.length/1024)} KB）` : '已儲存！（沒有圖片）');
+    }
+    render();
+  };
+  const cancelBtn = document.getElementById('cancelEdit');
+  if(cancelBtn) cancelBtn.onclick = ()=>{ editingItemId=null; render(); };
+  document.querySelectorAll('.editBtn').forEach(b=> b.onclick=()=>{ editingItemId=b.dataset.id; render(); });
+  document.querySelectorAll('.delBtn').forEach(b=> b.onclick=async ()=>{
+    if(await showConfirm('確定刪除這個獎品嗎？')){
+      const ok = await deleteItemFromStorage(b.dataset.id);
+      if(ok){ items = items.filter(i=>i.id!==b.dataset.id); }
+      render();
+    }
+  });
+}
+
+function genPass(){ return String(Math.floor(1000+Math.random()*9000)); }
+let pendingNewStudentPassword = genPass(); // 只在第一次或新增成功後才換一組新密碼，避免每次重繪畫面都跳號
+
+function studentsTabHtml(){
+  const arr = Object.entries(students);
+  return `
+    <div class="panel">
+      <h3 class="pixel" style="font-size:14px;color:var(--green)">新增學生</h3>
+      <div class="form-grid">
+        <input type="text" id="newStudentName" placeholder="學生姓名">
+        <input type="text" id="newStudentPassword" placeholder="專屬密碼" value="${esc(pendingNewStudentPassword)}">
+      </div>
+      <button class="btn wide" style="margin-top:10px" id="addStudentBtn">新增</button>
+    </div>
+    <div class="panel">
+      <h3 class="pixel" style="font-size:14px;color:var(--cyan)">全班發放抽獎券</h3>
+      <div class="row"><input type="number" id="bulkTickets" value="1" style="flex:1"><button class="btn blue" id="bulkGrantBtn">全班每人 +N 張</button></div>
+    </div>
+    <div class="panel">
+      <h3 class="pixel" style="font-size:14px;color:var(--cyan)">學生名單（${arr.length}）</h3>
+      ${arr.map(([id,s])=>{
+        const owned = Object.values(s.inventory||{}).filter(c=>c>0).length;
+        return `<div class="teacher-student-row">
+          <div class="row between"><b>${esc(s.name)}</b><a data-id="${id}" class="delStudentBtn" style="color:var(--magenta);cursor:pointer">移除</a></div>
+          <div style="color:var(--dim);font-size:17px">圖鑑進度 ${owned}/${items.length}　抽獎券 ${s.tickets}</div>
+          <div class="row" style="margin-top:6px;align-items:center">
+            <span style="font-size:17px;color:var(--dim)">密碼</span>
+            <input type="text" id="pw-${id}" value="${esc(s.password||'')}" style="width:90px">
+            <button class="btn ghost" data-id="${id}" data-action="savepw">更新密碼</button>
+          </div>
+          <div class="row" style="margin-top:6px">
+            <input type="number" id="grant-${id}" value="1" style="width:70px">
+            <button class="btn" data-id="${id}" data-action="grant">發放抽獎券</button>
+            <button class="btn ghost" data-id="${id}" data-action="book">管理圖鑑</button>
+            <button class="btn ghost" data-id="${id}" data-action="link">複製家長連結</button>
+          </div>
+        </div>`;
+      }).join('') || '<div style="color:var(--dim)">尚未新增學生</div>'}
+    </div>
+  `;
+}
+function bindStudentsTab(){
+  document.getElementById('addStudentBtn').onclick = async ()=>{
+    const nameEl = document.getElementById('newStudentName');
+    const pwEl = document.getElementById('newStudentPassword');
+    const name = nameEl.value.trim();
+    if(!name){ toast('請輸入姓名'); return; }
+    const password = pwEl.value.trim() || genPass();
+    students[uid()] = { name, password, tickets:0, inventory:{}, avatarItemId:null };
+    await setShared('gacha-students', students);
+    pendingNewStudentPassword = genPass(); // 換下一組，給下一位學生用
+    render();
+  };
+  document.getElementById('bulkGrantBtn').onclick = async ()=>{
+    const n = parseInt(document.getElementById('bulkTickets').value,10)||0;
+    Object.values(students).forEach(s=> s.tickets += n);
+    await setShared('gacha-students', students);
+    toast(`已發放給全班 +${n} 張！`); render();
+  };
+  document.querySelectorAll('.delStudentBtn').forEach(b=> b.onclick=async ()=>{
+    if(await showConfirm('確定要移除這位學生嗎？')){ delete students[b.dataset.id]; await setShared('gacha-students', students); render(); }
+  });
+  document.querySelectorAll('[data-action="savepw"]').forEach(b=> b.onclick=async ()=>{
+    const id=b.dataset.id; const val = document.getElementById('pw-'+id).value.trim();
+    if(!val){ toast('密碼不能是空的'); return; }
+    students[id].password = val; await setShared('gacha-students', students); toast('密碼已更新！');
+  });
+  document.querySelectorAll('[data-action="grant"]').forEach(b=> b.onclick=async ()=>{
+    const id=b.dataset.id; const n = parseInt(document.getElementById('grant-'+id).value,10)||0;
+    students[id].tickets += n; await setShared('gacha-students', students); toast('已發放！'); render();
+  });
+  document.querySelectorAll('[data-action="book"]').forEach(b=> b.onclick=()=> openAdminBookModal(b.dataset.id));
+  document.querySelectorAll('[data-action="link"]').forEach(b=> b.onclick=()=>{
+    const url = location.href.split('#')[0] + '#parent=' + b.dataset.id;
+    navigator.clipboard && navigator.clipboard.writeText(url).then(()=>toast('家長連結已複製！')).catch(()=>toast(url));
+  });
+}
+function openAdminBookModal(id){
+  const s = students[id]; if(!s) return;
+  const list = [...items].sort((a,b)=>a.number-b.number);
+  const overlay = document.createElement('div'); overlay.className='modal-overlay';
+  overlay.innerHTML = `<div class="modal-box">
+    <div class="row between"><h2 class="pixel" style="font-size:16px;color:var(--green)">${esc(s.name)} 的圖鑑管理</h2>
+    <a style="color:var(--dim);cursor:pointer" id="closeAdminModal">✕</a></div>
+    ${list.map(it=>`<label class="checkline" style="padding:6px 0;border-bottom:1px solid var(--panel2)">
+      <input type="checkbox" data-id="${it.id}" ${s.inventory&&s.inventory[it.id]>0?'checked':''}> #${it.number} ${esc(it.name)} ${it.special?'✨':''}
+    </label>`).join('') || '<div style="color:var(--dim)">尚未有獎品</div>'}
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#closeAdminModal').onclick = ()=> overlay.remove();
+  overlay.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+    cb.onchange = async ()=>{
+      s.inventory = s.inventory||{};
+      s.inventory[cb.dataset.id] = cb.checked ? 1 : 0;
+      await setShared('gacha-students', students);
+    };
+  });
+}
+
+function rulesTabHtml(){
+  return `<div class="panel">
+    <h3 class="pixel" style="font-size:14px;color:var(--green)">五連抽加成設定</h3>
+    <p style="color:var(--dim);font-size:18px">五連抽時，標記為「特別獎勵」的物品，機率權重會乘上下面這個倍數，讓學生更容易抽到特別獎勵。</p>
+    <label class="small">特別獎勵倍率</label>
+    <input type="number" id="boostInput" min="1" max="20" value="${config.boostMultiplier}">
+    <button class="btn wide" style="margin-top:12px" id="saveBoost">儲存</button>
+  </div>
+  <div class="panel">
+    <h3 class="pixel" style="font-size:14px;color:var(--cyan)">扭蛋機待機文字</h3>
+    <p style="color:var(--dim);font-size:18px">學生打開抽獎頁面、還沒按下按鈕時，畫面上顯示的文字。</p>
+    <label class="small">待機文字</label>
+    <input type="text" id="idleTextInput" value="${esc(config.idleText || '🎁 準備好了嗎？')}" maxlength="20">
+    <button class="btn wide" style="margin-top:12px" id="saveIdleText">儲存</button>
+  </div>`;
+}
+function bindRulesTab(){
+  document.getElementById('saveBoost').onclick = async ()=>{
+    config.boostMultiplier = parseFloat(document.getElementById('boostInput').value)||1;
+    await setShared('gacha-config', config);
+    toast('已儲存！');
+  };
+  document.getElementById('saveIdleText').onclick = async ()=>{
+    config.idleText = document.getElementById('idleTextInput').value.trim() || '🎁 準備好了嗎？';
+    await setShared('gacha-config', config);
+    toast('已儲存！');
+  };
+}
+
+function settingsTabHtml(){
+  return `<div class="panel">
+    <label class="small">班級名稱</label><input type="text" id="cName" value="${esc(config.className)}">
+    <label class="small">教師 PIN 碼</label><input type="text" id="cPin" value="${esc(config.teacherPin)}">
+    <button class="btn wide" style="margin-top:12px" id="saveCfg">儲存設定</button>
+  </div>
+  <div class="panel">
+    <h3 class="pixel" style="font-size:14px;color:var(--green)">家長專用連結</h3>
+    <p style="color:var(--dim);font-size:17px">一個連結給全班家長，打開就能點自己孩子的名字看圖鑑，不用登入。</p>
+    <button class="btn wide blue" id="copyParentsLink">複製家長總覽連結</button>
+  </div>`;
+}
+function bindSettingsTab(){
+  document.getElementById('copyParentsLink').onclick = ()=>{
+    const url = location.href.split('#')[0] + '#parents';
+    navigator.clipboard && navigator.clipboard.writeText(url).then(()=>toast('家長連結已複製！')).catch(()=>toast(url));
+  };
+  document.getElementById('saveCfg').onclick = async ()=>{
+    config.className = document.getElementById('cName').value.trim() || '我的班級';
+    config.teacherPin = document.getElementById('cPin').value.trim() || '0000';
+    await setShared('gacha-config', config);
+    toast('已儲存！'); render();
+  };
+}
+
+/* ============== 家長唯讀頁 ============== */
+let parentTargetId = null;
+function renderParent(){
+  const s = students[parentTargetId];
+  if(!s){ app.innerHTML = `<h1 class="title">😥 找不到這個學生</h1><p style="text-align:center;color:var(--dim)">請跟老師確認連結是否正確</p>`; return; }
+  app.innerHTML = `
+    <div class="avatar-header" style="justify-content:center;margin-bottom:10px">
+      <img class="avatar-img" src="${s.avatarItemId && itemById(s.avatarItemId) ? itemById(s.avatarItemId).image : pixelPlaceholder()}">
+      <div><div class="pixel" style="font-size:16px;color:var(--green)">${esc(s.name)}</div>
+      <div style="color:var(--dim);font-size:16px">${esc(config.className)} · 家長專用查看連結</div></div>
+    </div>
+    ${bookHtml(s,false)}
+  `;
+}
+
+function renderParentAll(){
+  const arr = Object.entries(students);
+  app.innerHTML = `
+    <h1 class="title">👨‍👩‍👧 家長專用查看</h1>
+    <p style="text-align:center;color:var(--dim);font-size:18px;margin-top:-10px">${esc(config.className)} · 點孩子的名字查看圖鑑</p>
+    <div class="panel">
+      <div class="student-grid">${arr.map(([id,s])=>`
+        <div class="student-card" data-id="${id}">
+          <img src="${s.avatarItemId && itemById(s.avatarItemId) ? itemById(s.avatarItemId).image : pixelPlaceholder()}">
+          <div class="nm">${esc(s.name)}</div>
+        </div>`).join('') || '<div style="color:var(--dim)">老師還沒有新增學生名單</div>'}
+      </div>
+    </div>
+  `;
+  document.querySelectorAll('.student-card').forEach(c=>{
+    c.onclick = ()=> openClassmateModal(c.dataset.id);
+  });
+}
+</script>
+</body>
+</html>

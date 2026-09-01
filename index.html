@@ -867,7 +867,11 @@ function itemsTabHtml(){
       <h3 class="pixel" style="font-size:14px;color:var(--green)">${editing?'編輯獎品':'新增獎品'}</h3>
       <div class="form-grid">
         <div><label class="small">編號</label><input type="number" id="fNum" value="${editing?editing.number:(items.length?Math.max(...items.map(i=>i.number))+1:1)}"></div>
-        <div><label class="small">機率權重(1-20)</label><input type="number" id="fWeight" min="1" max="20" value="${editing?editing.weight:5}"></div>
+        <div>
+          <label class="small">機率權重(1-20)</label>
+          <input type="number" id="fWeight" min="1" max="20" value="${editing?editing.weight:5}">
+          <div id="fWeightPct" style="font-size:14px;color:var(--green);margin-top:4px">目前約等於 ${(( (editing?editing.weight:5) / (items.reduce((s,i)=>s+i.weight,0) - (editing?editing.weight:0) + (editing?editing.weight:5)) )*100).toFixed(1)}%</div>
+        </div>
         <div class="full"><label class="small">名稱</label><input type="text" id="fName" value="${editing?esc(editing.name):''}" placeholder="例如：勇者小劍"></div>
         <div class="full"><label class="small">分類（自由填寫，例如：角色/裝備/道具）</label><input type="text" id="fCat" value="${editing?esc(editing.category):''}" placeholder="角色"></div>
         <div class="full"><label class="small">圖片（去背 PNG，建議用小尺寸圖示）</label><input type="file" id="fFile" accept="image/png">
@@ -887,18 +891,28 @@ function itemsTabHtml(){
     </div>
     <div class="panel">
       <h3 class="pixel" style="font-size:14px;color:var(--cyan)">獎池清單（${items.length}）</h3>
-      ${list.map(it=>`
+      ${(()=>{ const totalW = items.reduce((s,i)=>s+i.weight,0) || 1; return list.map(it=>`
         <div class="item-list-row">
           <img src="${it.image||pixelPlaceholder()}">
-          <div class="meta">#${it.number} <b>${esc(it.name)}</b> ${it.special?'✨':''}<br><span style="color:var(--dim)">${esc(it.category||'')} · 權重 ${it.weight}${it.limit?` · 限量 ${it.claimed||0}/${it.limit}`:' · 不限量'}</span></div>
+          <div class="meta">#${it.number} <b>${esc(it.name)}</b> ${it.special?'✨':''}<br><span style="color:var(--dim)">${esc(it.category||'')} · 機率約 ${(it.weight/totalW*100).toFixed(1)}%${it.limit?` · 限量 ${it.claimed||0}/${it.limit}`:' · 不限量'}</span></div>
           <a data-id="${it.id}" class="editBtn" style="color:var(--cyan);cursor:pointer;margin-right:8px">編輯</a>
           <a data-id="${it.id}" class="delBtn" style="color:var(--magenta);cursor:pointer">刪除</a>
-        </div>`).join('') || '<div style="color:var(--dim)">尚未新增任何獎品</div>'}
+        </div>`).join('') || '<div style="color:var(--dim)">尚未新增任何獎品</div>'; })()}
     </div>
   `;
 }
 function bindItemsTab(){
   let pendingImage = null; // 選檔當下就讀好，避免儲存當下再重讀可能出現的時間差問題
+  const weightEl = document.getElementById('fWeight');
+  if(weightEl){
+    weightEl.addEventListener('input', ()=>{
+      const w = parseInt(weightEl.value,10) || 0;
+      const otherTotal = items.reduce((s,i)=> s + (editingItemId && i.id===editingItemId ? 0 : i.weight), 0);
+      const total = otherTotal + w;
+      const pct = total>0 ? (w/total*100).toFixed(1) : '0.0';
+      document.getElementById('fWeightPct').textContent = `目前約等於 ${pct}%`;
+    });
+  }
   const fileEl0 = document.getElementById('fFile');
   if(fileEl0) fileEl0.addEventListener('change', async ()=>{
     if(fileEl0.files && fileEl0.files[0]){

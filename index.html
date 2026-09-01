@@ -237,8 +237,7 @@ async function apiPost(body){
 }
 
 let storageAvailable = false;
-async function waitForStorage(){
-  if(!API_BASE_URL || API_BASE_URL.indexOf('PUT_YOUR_') === 0) return false;
+async function checkApiReachable(){
   try{ await apiGet({action:'get', key:'__ping__'}); return true; }
   catch(e){ return false; }
 }
@@ -356,12 +355,16 @@ async function deleteItemFromStorage(id){
 }
 
 async function loadAll(){
-  config = await getShared('gacha-config', defaultConfig());
-  items = await loadItemsList();
-  students = await getShared('gacha-students', {});
-  myRole = await getPersonal('gacha-my-role', null);
-  myStudentId = await getPersonal('gacha-my-student-id', null);
-  teacherRemembered = await getPersonal('gacha-teacher-ok', false);
+  const [cfg, itemsArr, studentsObj, role, sid, teacherOk] = await Promise.all([
+    getShared('gacha-config', defaultConfig()),
+    loadItemsList(),
+    getShared('gacha-students', {}),
+    getPersonal('gacha-my-role', null),
+    getPersonal('gacha-my-student-id', null),
+    getPersonal('gacha-teacher-ok', false)
+  ]);
+  config = cfg; items = itemsArr; students = studentsObj;
+  myRole = role; myStudentId = sid; teacherRemembered = teacherOk;
 }
 
 /* ============== 主渲染 ============== */
@@ -393,12 +396,15 @@ function mergeStudentsInPlace(fetched){
 }
 
 async function refreshSharedData(){
-  config = await getShared('gacha-config', config);
-  items = await loadItemsList();
+  const skipStudents = screen==='studentHome' && (Date.now()-lastMyWriteAt < 4000);
+  const [cfg, itemsArr, fetchedStudents] = await Promise.all([
+    getShared('gacha-config', config),
+    loadItemsList(),
+    skipStudents ? Promise.resolve(null) : getShared('gacha-students', null)
+  ]);
+  config = cfg; items = itemsArr;
   // 學生剛存檔的幾秒內，先不要用輪詢抓回的舊資料蓋掉自己剛抽到的東西（避免圖鑑一時顯示 ??? 又消失）
-  if(screen==='studentHome' && (Date.now()-lastMyWriteAt < 4000)) return;
-  const fetched = await getShared('gacha-students', null);
-  mergeStudentsInPlace(fetched);
+  if(!skipStudents) mergeStudentsInPlace(fetchedStudents);
 }
 
 // 學生端／家長頁：定期背景同步教師後台的最新資料
@@ -430,20 +436,29 @@ document.addEventListener('visibilitychange', async ()=>{
 });
 
 (async function init(){
-  storageAvailable = await waitForStorage();
-  if(!storageAvailable){
-    const notConfigured = !API_BASE_URL || API_BASE_URL.indexOf('PUT_YOUR_') === 0;
+  const notConfigured = !API_BASE_URL || API_BASE_URL.indexOf('PUT_YOUR_') === 0;
+  if(notConfigured){
+    storageAvailable = false;
     app.innerHTML = `<div class="panel" style="border-color:var(--magenta);margin-top:40px">
       <h2 class="pixel" style="font-size:16px;color:var(--magenta)">⚠️ 連不到資料庫</h2>
       <p style="color:var(--text);font-size:20px;line-height:1.6">
-      ${notConfigured
-        ? '這個網頁還沒有設定後端 API 網址。請先照教學部署好 Google Apps Script，把網址貼到程式碼最上面的 <code>API_BASE_URL</code>。'
-        : '目前連不上後端的 Google Apps Script API，可能是網址錯誤、部署權限沒設成「任何人」、或網路連線問題。請確認 Apps Script 已經部署成 Web App，且存取權限是「任何人」。'}
+      這個網頁還沒有設定後端 API 網址。請先照教學部署好 Google Apps Script，把網址貼到程式碼最上面的 <code>API_BASE_URL</code>。
       </p>
     </div>`;
     return;
   }
-  await loadAll();
+  storageAvailable = true; // 先假設連得上，讓下面的請求真的送出去，再用 reachable 的結果做最終確認
+  const [reachable] = await Promise.all([checkApiReachable(), loadAll()]);
+  if(!reachable){
+    storageAvailable = false;
+    app.innerHTML = `<div class="panel" style="border-color:var(--magenta);margin-top:40px">
+      <h2 class="pixel" style="font-size:16px;color:var(--magenta)">⚠️ 連不到資料庫</h2>
+      <p style="color:var(--text);font-size:20px;line-height:1.6">
+      目前連不上後端的 Google Apps Script API，可能是網址錯誤、部署權限沒設成「任何人」、或網路連線問題。請確認 Apps Script 已經部署成 Web App，且存取權限是「任何人」。
+      </p>
+    </div>`;
+    return;
+  }
   const hash = location.hash;
   if(hash.startsWith('#parent=')){ screen='parent'; parentTargetId = decodeURIComponent(hash.slice(8)); render(); return; }
   if(hash==='#parents'){ screen='parentAll'; render(); return; }

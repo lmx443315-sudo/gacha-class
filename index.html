@@ -968,11 +968,12 @@ function genPass(){ return String(Math.floor(1000+Math.random()*9000)); }
 let pendingNewStudentPassword = genPass(); // 只在第一次或新增成功後才換一組新密碼，避免每次重繪畫面都跳號
 
 function studentsTabHtml(){
-  const arr = Object.entries(students);
+  const arr = Object.entries(students).sort((a,b)=> (a[1].number||9999) - (b[1].number||9999));
   return `
     <div class="panel">
       <h3 class="pixel" style="font-size:14px;color:var(--green)">新增學生</h3>
       <div class="form-grid">
+        <input type="number" id="newStudentNumber" placeholder="座號（可留空）">
         <input type="text" id="newStudentName" placeholder="學生姓名">
         <input type="text" id="newStudentPassword" placeholder="專屬密碼" value="${esc(pendingNewStudentPassword)}">
       </div>
@@ -987,8 +988,13 @@ function studentsTabHtml(){
       ${arr.map(([id,s])=>{
         const owned = Object.values(s.inventory||{}).filter(c=>c>0).length;
         return `<div class="teacher-student-row">
-          <div class="row between"><b>${esc(s.name)}</b><a data-id="${id}" class="delStudentBtn" style="color:var(--magenta);cursor:pointer">移除</a></div>
+          <div class="row between"><b>${s.number?`#${s.number} `:''}${esc(s.name)}</b><a data-id="${id}" class="delStudentBtn" style="color:var(--magenta);cursor:pointer">移除</a></div>
           <div style="color:var(--dim);font-size:17px">圖鑑進度 ${owned}/${items.length}　抽獎券 ${s.tickets}</div>
+          <div class="row" style="margin-top:6px;align-items:center">
+            <span style="font-size:17px;color:var(--dim)">座號</span>
+            <input type="number" id="num-${id}" value="${s.number||''}" style="width:70px">
+            <button class="btn ghost" data-id="${id}" data-action="savenum">更新座號</button>
+          </div>
           <div class="row" style="margin-top:6px;align-items:center">
             <span style="font-size:17px;color:var(--dim)">密碼</span>
             <input type="text" id="pw-${id}" value="${esc(s.password||'')}" style="width:90px">
@@ -996,7 +1002,10 @@ function studentsTabHtml(){
           </div>
           <div class="row" style="margin-top:6px">
             <input type="number" id="grant-${id}" value="1" style="width:70px">
-            <button class="btn" data-id="${id}" data-action="grant">發放抽獎券</button>
+            <button class="btn" data-id="${id}" data-action="grant">發放</button>
+            <button class="btn magenta" data-id="${id}" data-action="deduct">扣除</button>
+          </div>
+          <div class="row" style="margin-top:6px">
             <button class="btn ghost" data-id="${id}" data-action="book">管理圖鑑</button>
             <button class="btn ghost" data-id="${id}" data-action="link">複製家長連結</button>
           </div>
@@ -1009,10 +1018,12 @@ function bindStudentsTab(){
   document.getElementById('addStudentBtn').onclick = async ()=>{
     const nameEl = document.getElementById('newStudentName');
     const pwEl = document.getElementById('newStudentPassword');
+    const numEl = document.getElementById('newStudentNumber');
     const name = nameEl.value.trim();
     if(!name){ toast('請輸入姓名'); return; }
     const password = pwEl.value.trim() || genPass();
-    students[uid()] = { name, password, tickets:0, inventory:{}, avatarItemId:null };
+    const number = numEl.value ? (parseInt(numEl.value,10)||0) : 0;
+    students[uid()] = { name, password, number, tickets:0, inventory:{}, avatarItemId:null };
     await setShared('gacha-students', students);
     pendingNewStudentPassword = genPass(); // 換下一組，給下一位學生用
     render();
@@ -1031,9 +1042,18 @@ function bindStudentsTab(){
     if(!val){ toast('密碼不能是空的'); return; }
     students[id].password = val; await setShared('gacha-students', students); toast('密碼已更新！');
   });
+  document.querySelectorAll('[data-action="savenum"]').forEach(b=> b.onclick=async ()=>{
+    const id=b.dataset.id; const val = parseInt(document.getElementById('num-'+id).value,10)||0;
+    students[id].number = val; await setShared('gacha-students', students); toast('座號已更新！'); render();
+  });
   document.querySelectorAll('[data-action="grant"]').forEach(b=> b.onclick=async ()=>{
     const id=b.dataset.id; const n = parseInt(document.getElementById('grant-'+id).value,10)||0;
     students[id].tickets += n; await setShared('gacha-students', students); toast('已發放！'); render();
+  });
+  document.querySelectorAll('[data-action="deduct"]').forEach(b=> b.onclick=async ()=>{
+    const id=b.dataset.id; const n = parseInt(document.getElementById('grant-'+id).value,10)||0;
+    students[id].tickets = Math.max(0, (students[id].tickets||0) - n);
+    await setShared('gacha-students', students); toast('已扣除！'); render();
   });
   document.querySelectorAll('[data-action="book"]').forEach(b=> b.onclick=()=> openAdminBookModal(b.dataset.id));
   document.querySelectorAll('[data-action="link"]').forEach(b=> b.onclick=()=>{

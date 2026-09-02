@@ -426,7 +426,7 @@ setInterval(async ()=>{
       render(); // 只有資料真的變了才整頁重畫，避免畫面一直閃爍刷新
     }
   }
-}, 5000);
+}, 8000);
 
 // 切回這個分頁／平板從休眠喚醒時，立刻同步一次
 document.addEventListener('visibilitychange', async ()=>{
@@ -597,6 +597,16 @@ function renderStudentHome(){
   if(studentTab==='wall') bindWallEvents();
 }
 
+let lastDrawResults = null; // 保留最近一次的抽獎結果，避免畫面重新渲染時結果卡片憑空消失
+function resultCardsHtml(results){
+  if(!results || results.length===0) return '';
+  return results.map(it=>`
+      <div class="result-card ${it.special?'special':''}">
+        <img src="${it.image||pixelPlaceholder()}">
+        <div class="nm">${it.special?'✨ ':''}${esc(it.name)}</div>
+      </div>`).join('');
+}
+
 function drawTabHtml(me){
   return `
     <div class="ticket-tag">🎟️ 抽獎券：${me.tickets}</div>
@@ -608,7 +618,7 @@ function drawTabHtml(me){
       </div>
     </div>
     <div class="capsule-track" id="capsuleTrack"></div>
-    <div class="result-grid" id="resultGrid"></div>
+    <div class="result-grid" id="resultGrid">${resultCardsHtml(lastDrawResults)}</div>
   `;
 }
 
@@ -676,6 +686,7 @@ function bindDrawEvents(me){
     document.getElementById('machine').classList.add('spinning');
     document.getElementById('machineScreen').textContent='🎰 轉轉轉...';
     document.getElementById('resultGrid').innerHTML='';
+    lastDrawResults = null;
     const track = document.getElementById('capsuleTrack');
     track.innerHTML='';
     await new Promise(r=>setTimeout(r,900));
@@ -710,10 +721,10 @@ function bindDrawEvents(me){
     const studentsSaved = await setShared('gacha-students', students);
     if(studentsSaved){
       lastMyWriteAt = Date.now();
-      for(const [id,cnt] of Object.entries(touched)){
-        const real = itemById(id);
-        if(real && real.limit && real.limit>0){ real.claimed=(real.claimed||0)+cnt; await saveItemToStorage(real); }
-      }
+      const limitedTouched = Object.entries(touched)
+        .map(([id,cnt])=>({item:itemById(id), cnt}))
+        .filter(x=>x.item && x.item.limit && x.item.limit>0);
+      await Promise.all(limitedTouched.map(x=>{ x.item.claimed=(x.item.claimed||0)+x.cnt; return saveItemToStorage(x.item); }));
     } else {
       toast('❌ 存檔失敗，請檢查網路後重新整理再抽一次');
     }
@@ -721,12 +732,8 @@ function bindDrawEvents(me){
     await new Promise(r=>setTimeout(r,350));
     playChime(); spawnConfetti();
     document.getElementById('machineScreen').textContent='🎉 恭喜獲得！';
-    const grid = document.getElementById('resultGrid');
-    grid.innerHTML = results.map(it=>`
-      <div class="result-card ${it.special?'special':''}">
-        <img src="${it.image||pixelPlaceholder()}">
-        <div class="nm">${it.special?'✨ ':''}${esc(it.name)}</div>
-      </div>`).join('');
+    lastDrawResults = results;
+    document.getElementById('resultGrid').innerHTML = resultCardsHtml(results);
     document.querySelector('.ticket-tag').textContent = `🎟️ 抽獎券：${me.tickets}`;
     document.getElementById('draw1').disabled=false; document.getElementById('draw5').disabled=false;
     drawing = false;

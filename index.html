@@ -217,43 +217,46 @@ input[type=text], input[type=password], input[type=number], input[type=file]{ bo
 <div class="toast" id="toast"></div>
 
 <script>
-/* ============== 儲存輔助（改為呼叫 Google Apps Script API） ============== */
-// 部署好 Apps Script 之後，把網址貼在這裡（結尾應該是 /exec）
-const API_BASE_URL = 'https://script.google.com/macros/s/AKfycbwlCUOyoavHeYDo42KxY_5ltTtul2HeDLMKBxEoHnNcPTE3fnX7sSGEWr87YYa1yOKr3g/exec';
+/* ============== 儲存輔助（改為使用 Firebase Realtime Database） ============== */
+// 建好 Firebase Realtime Database 之後，把網址貼在這裡（結尾是 .app/ 或 .com/）
+const FIREBASE_DB_URL = 'https://gacha-class-default-rtdb.asia-southeast1.firebasedatabase.app/';
 
-async function apiGet(params){
-  const url = API_BASE_URL + '?' + new URLSearchParams(params).toString();
-  const res = await fetch(url);
-  if(!res.ok) throw new Error('API 錯誤 ' + res.status);
-  return await res.json();
-}
-async function apiPost(body){
-  const res = await fetch(API_BASE_URL, {
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'}, // 用 text/plain 避免瀏覽器觸發 CORS 預檢請求
-    body: JSON.stringify(body)
-  });
-  if(!res.ok) throw new Error('API 錯誤 ' + res.status);
-  return await res.json();
+function fbUrl(path){
+  return FIREBASE_DB_URL.replace(/\/$/,'') + '/' + path + '.json';
 }
 
 let storageAvailable = false;
 async function checkApiReachable(){
-  try{ await apiGet({action:'get', key:'__ping__'}); return true; }
+  try{ const res = await fetch(fbUrl('__ping__')); return res.ok; }
   catch(e){ return false; }
 }
 
-async function getShared(key, fallback){
+// Firebase 原生就是 JSON 資料庫，不用像以前那樣自己 JSON.stringify/parse 包一層
+async function getShared(path, fallback){
   if(!storageAvailable) return fallback;
   try{
-    const r = await apiGet({action:'get', key});
-    return (r && r.value !== null && r.value !== undefined && r.value !== '') ? JSON.parse(r.value) : fallback;
+    const res = await fetch(fbUrl(path));
+    if(!res.ok) throw new Error('讀取失敗 ' + res.status);
+    const data = await res.json();
+    return (data !== null && data !== undefined) ? data : fallback;
   }catch(e){ return fallback; }
 }
-async function setShared(key, val){
+async function setShared(path, val){
   if(!storageAvailable){ toast('⚠️ 連不到後端資料庫，資料不會保留'); return false; }
-  try{ await apiPost({action:'set', key, value: JSON.stringify(val)}); return true; }
-  catch(e){ console.error(e); toast('❌ 儲存失敗：'+(e && e.message ? e.message : '請檢查網路連線')); return false; }
+  try{
+    const res = await fetch(fbUrl(path), {
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(val)
+    });
+    if(!res.ok) throw new Error('寫入失敗 ' + res.status);
+    return true;
+  }catch(e){ console.error(e); toast('❌ 儲存失敗：'+(e && e.message ? e.message : '請檢查網路連線')); return false; }
+}
+async function deletePath(path){
+  if(!storageAvailable) return false;
+  try{ const res = await fetch(fbUrl(path), {method:'DELETE'}); return res.ok; }
+  catch(e){ console.error(e); return false; }
 }
 // 個人裝置資料（這台裝置是誰、有沒有記住教師身份）改存在瀏覽器本機，不用跑一趟後端
 async function getPersonal(key, fallback){
@@ -292,8 +295,60 @@ function toast(msg){
 function fileToDataURL(file){
   return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); });
 }
-// 試算表單一儲存格上限是 50,000 字元，這裡抓 42,000 當安全線（留空間給 JSON 其他欄位）
-const SHEET_CELL_SAFE_LIMIT = 42000;
+// Firebase 單筆資料上限寬鬆很多（約幾MB等級），這裡保留一個安全線避免圖片誇張過大
+const SHEET_CELL_SAFE_LIMIT = 300000;
+
+/* ============== 從舊版（Google試算表+Apps Script）後端匯入資料，只需執行一次 ============== */
+const LEGACY_API_BASE_URL = 'https://script.google.com/macros/s/AKfycbwlCUOyoavHeYDo42KxY_5ltTtul2HeDLMKBxEoHnNcPTE3fnX7sSGEWr87YYa1yOKr3g/exec';
+
+async function legacyApiGet(params){
+  const url = LEGACY_API_BASE_URL + '?' + new URLSearchParams(params).toString();
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('舊資料庫讀取失敗 ' + res.status);
+  return await res.json();
+}
+
+async function importFromLegacyBackend(){
+  toast('開始匯入舊資料，請稍等…');
+  try{
+    // 舊的班級設定
+    const cfgRes = await legacyApiGet({action:'get', key:'gacha-config'});
+    if(cfgRes && cfgRes.value){
+      config = JSON.parse(cfgRes.value);
+      await setShared('gacha-config', config);
+    }
+    // 舊的獎品（item: 前綴）
+    const itemsRes = await legacyApiGet({action:'list', prefix:'item:'});
+    const ikeys = (itemsRes && itemsRes.keys) || [];
+    const ivals = (itemsRes && itemsRes.values) || [];
+    const newItems = {};
+    for(let i=0;i<ikeys.length;i++){
+      if(ivals[i]){ try{ const it = JSON.parse(ivals[i]); newItems[it.id] = it; }catch(e){} }
+    }
+    await setShared('items', newItems);
+    // 舊的學生（先試每人一筆的新格式 student:，找不到再退回最舊的整包格式）
+    const studentsRes = await legacyApiGet({action:'list', prefix:'student:'});
+    const skeys = (studentsRes && studentsRes.keys) || [];
+    const svals = (studentsRes && studentsRes.values) || [];
+    const newStudents = {};
+    for(let i=0;i<skeys.length;i++){
+      if(svals[i]){ try{ newStudents[skeys[i].slice('student:'.length)] = JSON.parse(svals[i]); }catch(e){} }
+    }
+    if(Object.keys(newStudents).length===0){
+      const legacyBlob = await legacyApiGet({action:'get', key:'gacha-students'});
+      if(legacyBlob && legacyBlob.value){ Object.assign(newStudents, JSON.parse(legacyBlob.value)); }
+    }
+    await setShared('students', newStudents);
+
+    items = Object.values(newItems);
+    students = newStudents;
+    toast(`匯入完成！共 ${Object.keys(newItems).length} 個獎品、${Object.keys(newStudents).length} 位學生`);
+    render();
+  }catch(e){
+    console.error(e);
+    toast('❌ 匯入失敗：' + (e && e.message ? e.message : ''));
+  }
+}
 
 function resizeImageFile(file, maxSize){
   return new Promise((resolve,reject)=>{
@@ -346,54 +401,28 @@ let editingItemId = null;
 function defaultConfig(){ return { className:'我的班級', teacherPin:'0000', boostMultiplier:3, idleText:'🎁 準備好了嗎？' }; }
 
 async function loadItemsList(){
-  if(!storageAvailable) return [];
-  try{
-    const r = await apiGet({action:'list', prefix:'item:'});
-    const keys = (r && r.keys) || [];
-    const values = (r && r.values) || [];
-    const arr = [];
-    for(let i=0;i<keys.length;i++){
-      try{ if(values[i]) arr.push(JSON.parse(values[i])); }
-      catch(e){ /* 略過讀取失敗的單一獎品 */ }
-    }
-    return arr;
-  }catch(e){ return []; }
+  const obj = await getShared('items', {});
+  return Object.values(obj || {});
 }
 async function saveItemToStorage(item){
-  if(!storageAvailable){ toast('⚠️ 連不到後端資料庫，資料不會保留'); return false; }
-  try{ await apiPost({action:'set', key:'item:'+item.id, value: JSON.stringify(item)}); return true; }
-  catch(e){ console.error(e); toast('❌ 儲存失敗：'+(e && e.message ? e.message : '請確認網路連線')); return false; }
+  return await setShared('items/'+item.id, item);
 }
 async function deleteItemFromStorage(id){
-  if(!storageAvailable) return false;
-  try{ await apiPost({action:'delete', key:'item:'+id}); return true; }
-  catch(e){ console.error(e); toast('❌ 刪除失敗：'+(e && e.message ? e.message : '')); return false; }
+  const ok = await deletePath('items/'+id);
+  if(!ok) toast('❌ 刪除失敗，請檢查網路連線');
+  return ok;
 }
 
-// 每個學生各自存成一筆資料（student:學生id），避免多人同時存檔時互相蓋掉彼此的紀錄
+// 每個學生各自存成一筆資料（students/學生id），避免多人同時存檔時互相蓋掉彼此的紀錄
 async function loadStudentsList(){
-  if(!storageAvailable) return {};
-  try{
-    const r = await apiGet({action:'list', prefix:'student:'});
-    const keys = (r && r.keys) || [];
-    const values = (r && r.values) || [];
-    const map = {};
-    for(let i=0;i<keys.length;i++){
-      try{ if(values[i]){ map[keys[i].slice('student:'.length)] = JSON.parse(values[i]); } }
-      catch(e){ /* 略過讀取失敗的單一學生 */ }
-    }
-    return map;
-  }catch(e){ return {}; }
+  const obj = await getShared('students', {});
+  return obj || {};
 }
 async function saveStudentToStorage(id, student){
-  if(!storageAvailable){ toast('⚠️ 連不到後端資料庫，資料不會保留'); return false; }
-  try{ await apiPost({action:'set', key:'student:'+id, value: JSON.stringify(student)}); return true; }
-  catch(e){ console.error(e); toast('❌ 儲存失敗：'+(e && e.message ? e.message : '請檢查網路連線')); return false; }
+  return await setShared('students/'+id, student);
 }
 async function deleteStudentFromStorage(id){
-  if(!storageAvailable) return false;
-  try{ await apiPost({action:'delete', key:'student:'+id}); return true; }
-  catch(e){ console.error(e); return false; }
+  return await deletePath('students/'+id);
 }
 
 async function loadAll(){
@@ -407,17 +436,6 @@ async function loadAll(){
   ]);
   config = cfg; items = itemsArr; students = studentsObj;
   myRole = role; myStudentId = sid; teacherRemembered = teacherOk;
-
-  // 資料搬遷：舊版把全班學生擠在同一筆資料裡，這裡會自動找出「舊資料裡有、但新格式還沒有」的學生並補齊
-  // 每次都會檢查（不是只跑一次），這樣就算上次搬到一半失敗中斷，下次還是會自動補完，不會卡住
-  const legacy = await getShared('gacha-students', null);
-  if(legacy){
-    const missingIds = Object.keys(legacy).filter(id => !(id in students));
-    if(missingIds.length > 0){
-      await Promise.all(missingIds.map(id => saveStudentToStorage(id, legacy[id])));
-      missingIds.forEach(id => { students[id] = legacy[id]; });
-    }
-  }
 }
 
 /* ============== 主渲染 ============== */
@@ -489,19 +507,19 @@ document.addEventListener('visibilitychange', async ()=>{
 });
 
 (async function init(){
-  const notConfigured = !API_BASE_URL || API_BASE_URL.indexOf('PUT_YOUR_') === 0;
+  const notConfigured = !FIREBASE_DB_URL || FIREBASE_DB_URL.indexOf('PUT_YOUR_') === 0;
   if(notConfigured){
     storageAvailable = false;
     app.innerHTML = `<div class="panel" style="border-color:var(--magenta);margin-top:40px">
       <h2 class="pixel" style="font-size:16px;color:var(--magenta)">⚠️ 連不到資料庫</h2>
       <p style="color:var(--text);font-size:20px;line-height:1.6">
-      這個網頁還沒有設定後端 API 網址。請先照教學部署好 Google Apps Script，把網址貼到程式碼最上面的 <code>API_BASE_URL</code>。
+      這個網頁還沒有設定 Firebase 資料庫網址。請先照教學建立好 Firebase Realtime Database，把網址貼到程式碼最上面的 <code>FIREBASE_DB_URL</code>。
       </p>
     </div>`;
     return;
   }
   storageAvailable = true; // 先假設連得上，讓下面的請求真的送出去，再用 reachable 的結果做最終確認
-  const TIMEOUT_MS = 35000;
+  const TIMEOUT_MS = 20000;
   const timeoutPromise = new Promise(resolve=>setTimeout(()=>resolve('__TIMEOUT__'), TIMEOUT_MS));
   const result = await Promise.race([
     Promise.all([checkApiReachable(), loadAll()]).then(r=>r[0]),
@@ -513,8 +531,8 @@ document.addEventListener('visibilitychange', async ()=>{
       <h2 class="pixel" style="font-size:16px;color:var(--magenta)">⚠️ ${result==='__TIMEOUT__'?'連線逾時':'連不到資料庫'}</h2>
       <p style="color:var(--text);font-size:20px;line-height:1.6">
       ${result==='__TIMEOUT__'
-        ? '連了超過 15 秒還沒回應，可能是 Google Apps Script 忙線中或網路不穩。請重新整理再試一次；如果一直發生，麻煩把這個狀況告訴老師（開發者）。'
-        : '目前連不上後端的 Google Apps Script API，可能是網址錯誤、部署權限沒設成「任何人」、或網路連線問題。請確認 Apps Script 已經部署成 Web App，且存取權限是「任何人」。'}
+        ? '連了超過 20 秒還沒回應，可能是網路不穩。請重新整理再試一次；如果一直發生，麻煩把這個狀況告訴老師（開發者）。'
+        : '目前連不上 Firebase 資料庫，可能是網址錯誤、安全性規則沒開放讀寫、或網路連線問題。請確認 Realtime Database 的「規則」是開放讀寫的。'}
       </p>
     </div>`;
     return;
@@ -1209,9 +1227,19 @@ function settingsTabHtml(){
     <h3 class="pixel" style="font-size:14px;color:var(--green)">家長專用連結</h3>
     <p style="color:var(--dim);font-size:17px">一個連結給全班家長，打開就能點自己孩子的名字看圖鑑，不用登入。</p>
     <button class="btn wide blue" id="copyParentsLink">複製家長總覽連結</button>
+  </div>
+  <div class="panel">
+    <h3 class="pixel" style="font-size:14px;color:var(--magenta)">從舊資料庫匯入</h3>
+    <p style="color:var(--dim);font-size:17px">如果之前用 Google 試算表存過班級資料，按這個按鈕把獎品和學生資料一次搬過來（只需要做一次，重複按會覆蓋掉現在的資料）。</p>
+    <button class="btn wide magenta" id="importLegacyBtn">從舊資料庫匯入</button>
   </div>`;
 }
 function bindSettingsTab(){
+  document.getElementById('importLegacyBtn').onclick = async ()=>{
+    if(await showConfirm('確定要從舊資料庫匯入嗎？會覆蓋掉目前的獎品和學生資料。')){
+      await importFromLegacyBackend();
+    }
+  };
   document.getElementById('copyParentsLink').onclick = ()=>{
     const url = location.href.split('#')[0] + '#parents';
     navigator.clipboard && navigator.clipboard.writeText(url).then(()=>toast('家長連結已複製！')).catch(()=>toast(url));

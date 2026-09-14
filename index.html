@@ -292,6 +292,9 @@ function toast(msg){
 function fileToDataURL(file){
   return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); });
 }
+// 試算表單一儲存格上限是 50,000 字元，這裡抓 42,000 當安全線（留空間給 JSON 其他欄位）
+const SHEET_CELL_SAFE_LIMIT = 42000;
+
 function resizeImageFile(file, maxSize){
   return new Promise((resolve,reject)=>{
     const reader = new FileReader();
@@ -300,19 +303,31 @@ function resizeImageFile(file, maxSize){
       const img = new Image();
       img.onerror = reject;
       img.onload = ()=>{
-        let w = img.width, h = img.height;
-        if(w > maxSize || h > maxSize){
-          const scale = Math.min(maxSize/w, maxSize/h);
-          w = Math.max(1, Math.round(w*scale));
-          h = Math.max(1, Math.round(h*scale));
+        const render = (size)=>{
+          let w = img.width, h = img.height;
+          if(w > size || h > size){
+            const scale = Math.min(size/w, size/h);
+            w = Math.max(1, Math.round(w*scale));
+            h = Math.max(1, Math.round(h*scale));
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = false;
+          ctx.clearRect(0,0,w,h);
+          ctx.drawImage(img,0,0,w,h);
+          return canvas.toDataURL('image/png');
+        };
+        // 從指定大小開始，如果轉出來的文字還是太長，就再縮小一輪，最多試 6 次確保一定在安全範圍內
+        let size = maxSize;
+        let dataUrl = render(size);
+        let tries = 0;
+        while(dataUrl.length > SHEET_CELL_SAFE_LIMIT && tries < 6){
+          size = Math.round(size * 0.7);
+          dataUrl = render(size);
+          tries++;
         }
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.imageSmoothingEnabled = false;
-        ctx.clearRect(0,0,w,h);
-        ctx.drawImage(img,0,0,w,h);
-        resolve(canvas.toDataURL('image/png'));
+        resolve(dataUrl);
       };
       img.src = reader.result;
     };
@@ -926,7 +941,7 @@ function itemsTabHtml(){
         </div>
         <div class="full"><label class="small">名稱</label><input type="text" id="fName" value="${editing?esc(editing.name):''}" placeholder="例如：勇者小劍"></div>
         <div class="full"><label class="small">分類（自由填寫，例如：角色/裝備/道具）</label><input type="text" id="fCat" value="${editing?esc(editing.category):''}" placeholder="角色"></div>
-        <div class="full"><label class="small">圖片（去背 PNG，建議用小尺寸圖示）</label><input type="file" id="fFile" accept="image/png">
+        <div class="full"><label class="small">圖片（PNG 去背 / GIF 動圖，建議用小尺寸圖示）</label><input type="file" id="fFile" accept="image/png,image/gif">
           <div class="row" style="margin-top:6px;align-items:center;gap:8px">
             <img id="fPreview" src="${editing&&editing.image?editing.image:pixelPlaceholder()}" style="width:44px;height:44px;object-fit:contain;background:#02092A;image-rendering:pixelated;border:2px solid var(--blue)">
             <span id="fPreviewLabel" style="font-size:16px;color:var(--dim)">${editing&&editing.image?'目前的圖片':'尚未上傳圖片，會顯示問號圖示'}</span>
@@ -968,8 +983,21 @@ function bindItemsTab(){
   const fileEl0 = document.getElementById('fFile');
   if(fileEl0) fileEl0.addEventListener('change', async ()=>{
     if(fileEl0.files && fileEl0.files[0]){
+      const file = fileEl0.files[0];
       try{
-        pendingImage = await fileToDataURL(fileEl0.files[0]);
+        if(file.type === 'image/gif'){
+          // GIF 動圖不能用 canvas 壓縮（會變成靜態單張圖，動畫會消失），只能原檔上傳
+          pendingImage = await fileToDataURL(file);
+          if(pendingImage.length > SHEET_CELL_SAFE_LIMIT){
+            pendingImage = null;
+            document.getElementById('fPreview').src = pixelPlaceholder();
+            document.getElementById('fPreviewLabel').textContent = '⚠️ 這個 GIF 太大了（動圖無法自動壓縮），請換一個檔案小一點的動圖';
+            toast('⚠️ GIF 太大，請換小一點的動圖');
+            return;
+          }
+        } else {
+          pendingImage = await resizeImageFile(file, 200);
+        }
         document.getElementById('fPreview').src = pendingImage;
         document.getElementById('fPreviewLabel').textContent = `已選擇這張圖片（約 ${Math.round(pendingImage.length/1024)} KB）`;
       }catch(e){ pendingImage=null; toast('圖片讀取失敗，請換一張圖'); }
@@ -986,7 +1014,10 @@ function bindItemsTab(){
     if(!name){ toast('請輸入獎品名稱'); return; }
     const saveBtn = document.getElementById('saveItem');
     let image = pendingImage || (editingItemId ? itemById(editingItemId).image : '') || '';
-    if(image && image.length > 3.5*1024*1024){ toast('⚠️ 這張圖有點大，如果存檔失敗請換小一點的圖'); }
+    if(image && image.length > SHEET_CELL_SAFE_LIMIT){
+      toast('⚠️ 這張圖太大了（超過資料庫單一儲存格上限），請重新選一張圖片再存檔');
+      return;
+    }
     if(!image){ toast('⚠️ 這個獎品沒有圖片，圖鑑會先顯示問號圖示'); }
     const overrides = {number:num,weight,name,category:cat,special,image,limit};
     if(editingItemId && claimedInput){ overrides.claimed = parseInt(claimedInput.value,10)||0; }
@@ -1019,7 +1050,11 @@ function genPass(){ return String(Math.floor(1000+Math.random()*9000)); }
 let pendingNewStudentPassword = genPass(); // 只在第一次或新增成功後才換一組新密碼，避免每次重繪畫面都跳號
 
 function studentsTabHtml(){
-  const arr = Object.entries(students).sort((a,b)=> (a[1].number||9999) - (b[1].number||9999));
+  const arr = Object.entries(students).sort((a,b)=>{
+    const na = a[1].number||9999, nb = b[1].number||9999;
+    if(na !== nb) return na - nb;
+    return (a[1].name||'').localeCompare(b[1].name||'', 'zh-Hant');
+  });
   return `
     <div class="panel">
       <h3 class="pixel" style="font-size:14px;color:var(--green)">新增學生</h3>

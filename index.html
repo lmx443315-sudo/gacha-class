@@ -393,12 +393,14 @@ async function loadAll(){
   config = cfg; items = itemsArr; students = studentsObj;
   myRole = role; myStudentId = sid; teacherRemembered = teacherOk;
 
-  // 一次性資料搬遷：舊版把全班學生擠在同一筆資料裡，如果偵測到還沒搬過，自動搬成每人一筆
-  if(Object.keys(students).length === 0){
-    const legacy = await getShared('gacha-students', null);
-    if(legacy && Object.keys(legacy).length > 0){
-      students = legacy;
-      await Promise.all(Object.entries(students).map(([id,s]) => saveStudentToStorage(id, s)));
+  // 資料搬遷：舊版把全班學生擠在同一筆資料裡，這裡會自動找出「舊資料裡有、但新格式還沒有」的學生並補齊
+  // 每次都會檢查（不是只跑一次），這樣就算上次搬到一半失敗中斷，下次還是會自動補完，不會卡住
+  const legacy = await getShared('gacha-students', null);
+  if(legacy){
+    const missingIds = Object.keys(legacy).filter(id => !(id in students));
+    if(missingIds.length > 0){
+      await Promise.all(missingIds.map(id => saveStudentToStorage(id, legacy[id])));
+      missingIds.forEach(id => { students[id] = legacy[id]; });
     }
   }
 }

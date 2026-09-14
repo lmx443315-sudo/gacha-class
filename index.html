@@ -287,6 +287,13 @@ function showConfirm(message){
 }
 
 function uid(){ return 'x'+Math.random().toString(36).slice(2,10); }
+function sortedStudentEntries(){
+  return Object.entries(students).sort((a,b)=>{
+    const na = a[1].number||9999, nb = b[1].number||9999;
+    if(na !== nb) return na - nb;
+    return (a[1].name||'').localeCompare(b[1].name||'', 'zh-Hant');
+  });
+}
 function esc(s){ const d=document.createElement('div'); d.textContent = s==null?'':String(s); return d.innerHTML; }
 function toast(msg){
   const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
@@ -295,60 +302,11 @@ function toast(msg){
 function fileToDataURL(file){
   return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); });
 }
-// Firebase 單筆資料上限寬鬆很多（約幾MB等級），這裡保留一個安全線避免圖片誇張過大
+// Firebase 單筆資料上限寬鬆很多（約幾MB等級）
+// 這個是「新圖片壓縮目標」，讓新上傳的圖示保持精簡、載入快
 const SHEET_CELL_SAFE_LIMIT = 300000;
-
-/* ============== 從舊版（Google試算表+Apps Script）後端匯入資料，只需執行一次 ============== */
-const LEGACY_API_BASE_URL = 'https://script.google.com/macros/s/AKfycbwlCUOyoavHeYDo42KxY_5ltTtul2HeDLMKBxEoHnNcPTE3fnX7sSGEWr87YYa1yOKr3g/exec';
-
-async function legacyApiGet(params){
-  const url = LEGACY_API_BASE_URL + '?' + new URLSearchParams(params).toString();
-  const res = await fetch(url);
-  if(!res.ok) throw new Error('舊資料庫讀取失敗 ' + res.status);
-  return await res.json();
-}
-
-async function importFromLegacyBackend(){
-  toast('開始匯入舊資料，請稍等…');
-  try{
-    // 舊的班級設定
-    const cfgRes = await legacyApiGet({action:'get', key:'gacha-config'});
-    if(cfgRes && cfgRes.value){
-      config = JSON.parse(cfgRes.value);
-      await setShared('gacha-config', config);
-    }
-    // 舊的獎品（item: 前綴）
-    const itemsRes = await legacyApiGet({action:'list', prefix:'item:'});
-    const ikeys = (itemsRes && itemsRes.keys) || [];
-    const ivals = (itemsRes && itemsRes.values) || [];
-    const newItems = {};
-    for(let i=0;i<ikeys.length;i++){
-      if(ivals[i]){ try{ const it = JSON.parse(ivals[i]); newItems[it.id] = it; }catch(e){} }
-    }
-    await setShared('items', newItems);
-    // 舊的學生（先試每人一筆的新格式 student:，找不到再退回最舊的整包格式）
-    const studentsRes = await legacyApiGet({action:'list', prefix:'student:'});
-    const skeys = (studentsRes && studentsRes.keys) || [];
-    const svals = (studentsRes && studentsRes.values) || [];
-    const newStudents = {};
-    for(let i=0;i<skeys.length;i++){
-      if(svals[i]){ try{ newStudents[skeys[i].slice('student:'.length)] = JSON.parse(svals[i]); }catch(e){} }
-    }
-    if(Object.keys(newStudents).length===0){
-      const legacyBlob = await legacyApiGet({action:'get', key:'gacha-students'});
-      if(legacyBlob && legacyBlob.value){ Object.assign(newStudents, JSON.parse(legacyBlob.value)); }
-    }
-    await setShared('students', newStudents);
-
-    items = Object.values(newItems);
-    students = newStudents;
-    toast(`匯入完成！共 ${Object.keys(newItems).length} 個獎品、${Object.keys(newStudents).length} 位學生`);
-    render();
-  }catch(e){
-    console.error(e);
-    toast('❌ 匯入失敗：' + (e && e.message ? e.message : ''));
-  }
-}
+// 這個是「真正會擋下存檔」的硬門檻，故意設寬鬆很多，避免舊資料被誤擋
+const HARD_SAVE_LIMIT = 3000000;
 
 function resizeImageFile(file, maxSize){
   return new Promise((resolve,reject)=>{
@@ -584,7 +542,7 @@ function renderRole(){
 
 /* ============== 學生登入 ============== */
 function renderStudentAuth(){
-  const rosterHtml = Object.entries(students).map(([id,s])=>`
+  const rosterHtml = sortedStudentEntries().map(([id,s])=>`
     <div class="student-card" data-id="${id}">
       <img src="${s.avatarItemId && itemById(s.avatarItemId) ? itemById(s.avatarItemId).image : pixelPlaceholder()}">
       <div class="nm">${esc(s.name)}</div>
@@ -867,7 +825,7 @@ function bindBookEvents(me){
 }
 
 function wallHtml(){
-  const arr = Object.entries(students);
+  const arr = sortedStudentEntries();
   if(arr.length===0) return `<div class="panel">目前還沒有同學名單</div>`;
   return `<div class="panel"><div class="student-grid">${arr.map(([id,s])=>`
     <div class="student-card" data-id="${id}">
@@ -1006,7 +964,7 @@ function bindItemsTab(){
         if(file.type === 'image/gif'){
           // GIF 動圖不能用 canvas 壓縮（會變成靜態單張圖，動畫會消失），只能原檔上傳
           pendingImage = await fileToDataURL(file);
-          if(pendingImage.length > SHEET_CELL_SAFE_LIMIT){
+          if(pendingImage.length > HARD_SAVE_LIMIT){
             pendingImage = null;
             document.getElementById('fPreview').src = pixelPlaceholder();
             document.getElementById('fPreviewLabel').textContent = '⚠️ 這個 GIF 太大了（動圖無法自動壓縮），請換一個檔案小一點的動圖';
@@ -1032,7 +990,7 @@ function bindItemsTab(){
     if(!name){ toast('請輸入獎品名稱'); return; }
     const saveBtn = document.getElementById('saveItem');
     let image = pendingImage || (editingItemId ? itemById(editingItemId).image : '') || '';
-    if(image && image.length > SHEET_CELL_SAFE_LIMIT){
+    if(image && image.length > HARD_SAVE_LIMIT){
       toast('⚠️ 這張圖太大了（超過資料庫單一儲存格上限），請重新選一張圖片再存檔');
       return;
     }
@@ -1068,11 +1026,7 @@ function genPass(){ return String(Math.floor(1000+Math.random()*9000)); }
 let pendingNewStudentPassword = genPass(); // 只在第一次或新增成功後才換一組新密碼，避免每次重繪畫面都跳號
 
 function studentsTabHtml(){
-  const arr = Object.entries(students).sort((a,b)=>{
-    const na = a[1].number||9999, nb = b[1].number||9999;
-    if(na !== nb) return na - nb;
-    return (a[1].name||'').localeCompare(b[1].name||'', 'zh-Hant');
-  });
+  const arr = sortedStudentEntries();
   return `
     <div class="panel">
       <h3 class="pixel" style="font-size:14px;color:var(--green)">新增學生</h3>
@@ -1227,19 +1181,9 @@ function settingsTabHtml(){
     <h3 class="pixel" style="font-size:14px;color:var(--green)">家長專用連結</h3>
     <p style="color:var(--dim);font-size:17px">一個連結給全班家長，打開就能點自己孩子的名字看圖鑑，不用登入。</p>
     <button class="btn wide blue" id="copyParentsLink">複製家長總覽連結</button>
-  </div>
-  <div class="panel">
-    <h3 class="pixel" style="font-size:14px;color:var(--magenta)">從舊資料庫匯入</h3>
-    <p style="color:var(--dim);font-size:17px">如果之前用 Google 試算表存過班級資料，按這個按鈕把獎品和學生資料一次搬過來（只需要做一次，重複按會覆蓋掉現在的資料）。</p>
-    <button class="btn wide magenta" id="importLegacyBtn">從舊資料庫匯入</button>
   </div>`;
 }
 function bindSettingsTab(){
-  document.getElementById('importLegacyBtn').onclick = async ()=>{
-    if(await showConfirm('確定要從舊資料庫匯入嗎？會覆蓋掉目前的獎品和學生資料。')){
-      await importFromLegacyBackend();
-    }
-  };
   document.getElementById('copyParentsLink').onclick = ()=>{
     const url = location.href.split('#')[0] + '#parents';
     navigator.clipboard && navigator.clipboard.writeText(url).then(()=>toast('家長連結已複製！')).catch(()=>toast(url));
@@ -1268,7 +1212,7 @@ function renderParent(){
 }
 
 function renderParentAll(){
-  const arr = Object.entries(students);
+  const arr = sortedStudentEntries();
   app.innerHTML = `
     <h1 class="title">👨‍👩‍👧 家長專用查看</h1>
     <p style="text-align:center;color:var(--dim);font-size:18px;margin-top:-10px">${esc(config.className)} · 點孩子的名字查看圖鑑</p>

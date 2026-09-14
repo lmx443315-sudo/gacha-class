@@ -355,17 +355,52 @@ async function deleteItemFromStorage(id){
   catch(e){ console.error(e); toast('❌ 刪除失敗：'+(e && e.message ? e.message : '')); return false; }
 }
 
+// 每個學生各自存成一筆資料（student:學生id），避免多人同時存檔時互相蓋掉彼此的紀錄
+async function loadStudentsList(){
+  if(!storageAvailable) return {};
+  try{
+    const r = await apiGet({action:'list', prefix:'student:'});
+    const keys = (r && r.keys) || [];
+    const values = (r && r.values) || [];
+    const map = {};
+    for(let i=0;i<keys.length;i++){
+      try{ if(values[i]){ map[keys[i].slice('student:'.length)] = JSON.parse(values[i]); } }
+      catch(e){ /* 略過讀取失敗的單一學生 */ }
+    }
+    return map;
+  }catch(e){ return {}; }
+}
+async function saveStudentToStorage(id, student){
+  if(!storageAvailable){ toast('⚠️ 連不到後端資料庫，資料不會保留'); return false; }
+  try{ await apiPost({action:'set', key:'student:'+id, value: JSON.stringify(student)}); return true; }
+  catch(e){ console.error(e); toast('❌ 儲存失敗：'+(e && e.message ? e.message : '請檢查網路連線')); return false; }
+}
+async function deleteStudentFromStorage(id){
+  if(!storageAvailable) return false;
+  try{ await apiPost({action:'delete', key:'student:'+id}); return true; }
+  catch(e){ console.error(e); return false; }
+}
+
 async function loadAll(){
   const [cfg, itemsArr, studentsObj, role, sid, teacherOk] = await Promise.all([
     getShared('gacha-config', defaultConfig()),
     loadItemsList(),
-    getShared('gacha-students', {}),
+    loadStudentsList(),
     getPersonal('gacha-my-role', null),
     getPersonal('gacha-my-student-id', null),
     getPersonal('gacha-teacher-ok', false)
   ]);
   config = cfg; items = itemsArr; students = studentsObj;
   myRole = role; myStudentId = sid; teacherRemembered = teacherOk;
+
+  // 一次性資料搬遷：舊版把全班學生擠在同一筆資料裡，如果偵測到還沒搬過，自動搬成每人一筆
+  if(Object.keys(students).length === 0){
+    const legacy = await getShared('gacha-students', null);
+    if(legacy && Object.keys(legacy).length > 0){
+      students = legacy;
+      await Promise.all(Object.entries(students).map(([id,s]) => saveStudentToStorage(id, s)));
+    }
+  }
 }
 
 /* ============== 主渲染 ============== */
@@ -401,7 +436,7 @@ async function refreshSharedData(){
   const [cfg, itemsArr, fetchedStudents] = await Promise.all([
     getShared('gacha-config', config),
     loadItemsList(),
-    skipStudents ? Promise.resolve(null) : getShared('gacha-students', null)
+    skipStudents ? Promise.resolve(null) : loadStudentsList()
   ]);
   config = cfg; items = itemsArr;
   // 學生剛存檔的幾秒內，先不要用輪詢抓回的舊資料蓋掉自己剛抽到的東西（避免圖鑑一時顯示 ??? 又消失）
@@ -718,7 +753,7 @@ function bindDrawEvents(me){
     me.inventory = me.inventory || {};
     const touched = {};
     results.forEach(it=>{ me.inventory[it.id]=(me.inventory[it.id]||0)+1; touched[it.id]=(touched[it.id]||0)+1; });
-    const studentsSaved = await setShared('gacha-students', students);
+    const studentsSaved = await saveStudentToStorage(myStudentId, me);
     if(studentsSaved){
       lastMyWriteAt = Date.now();
       const limitedTouched = Object.entries(touched)
@@ -771,7 +806,7 @@ function bindBookEvents(me){
       if(count < 4){ toast('至少要有 4 個（留 1 個、合成 3 個）才能合成喔！'); return; }
       me.inventory[id] = count - 3;
       me.tickets = (me.tickets||0) + 1;
-      await setShared('gacha-students', students);
+      await saveStudentToStorage(myStudentId, me);
       lastMyWriteAt = Date.now();
       toast('合成成功！獲得 1 張抽獎券 🎟️');
       render();
@@ -781,7 +816,7 @@ function bindBookEvents(me){
     c.onclick = async ()=>{
       if(c.dataset.owned!=='1') return;
       me.avatarItemId = c.dataset.id;
-      await setShared('gacha-students', students);
+      await saveStudentToStorage(myStudentId, me);
       lastMyWriteAt = Date.now();
       toast('已更新頭像！');
       render();
@@ -1030,37 +1065,38 @@ function bindStudentsTab(){
     if(!name){ toast('請輸入姓名'); return; }
     const password = pwEl.value.trim() || genPass();
     const number = numEl.value ? (parseInt(numEl.value,10)||0) : 0;
-    students[uid()] = { name, password, number, tickets:0, inventory:{}, avatarItemId:null };
-    await setShared('gacha-students', students);
+    const id = uid();
+    students[id] = { name, password, number, tickets:0, inventory:{}, avatarItemId:null };
+    await saveStudentToStorage(id, students[id]);
     pendingNewStudentPassword = genPass(); // 換下一組，給下一位學生用
     render();
   };
   document.getElementById('bulkGrantBtn').onclick = async ()=>{
     const n = parseInt(document.getElementById('bulkTickets').value,10)||0;
     Object.values(students).forEach(s=> s.tickets += n);
-    await setShared('gacha-students', students);
+    await Promise.all(Object.entries(students).map(([id,s])=>saveStudentToStorage(id,s)));
     toast(`已發放給全班 +${n} 張！`); render();
   };
   document.querySelectorAll('.delStudentBtn').forEach(b=> b.onclick=async ()=>{
-    if(await showConfirm('確定要移除這位學生嗎？')){ delete students[b.dataset.id]; await setShared('gacha-students', students); render(); }
+    if(await showConfirm('確定要移除這位學生嗎？')){ const id=b.dataset.id; delete students[id]; await deleteStudentFromStorage(id); render(); }
   });
   document.querySelectorAll('[data-action="savepw"]').forEach(b=> b.onclick=async ()=>{
     const id=b.dataset.id; const val = document.getElementById('pw-'+id).value.trim();
     if(!val){ toast('密碼不能是空的'); return; }
-    students[id].password = val; await setShared('gacha-students', students); toast('密碼已更新！');
+    students[id].password = val; await saveStudentToStorage(id, students[id]); toast('密碼已更新！');
   });
   document.querySelectorAll('[data-action="savenum"]').forEach(b=> b.onclick=async ()=>{
     const id=b.dataset.id; const val = parseInt(document.getElementById('num-'+id).value,10)||0;
-    students[id].number = val; await setShared('gacha-students', students); toast('座號已更新！'); render();
+    students[id].number = val; await saveStudentToStorage(id, students[id]); toast('座號已更新！'); render();
   });
   document.querySelectorAll('[data-action="grant"]').forEach(b=> b.onclick=async ()=>{
     const id=b.dataset.id; const n = parseInt(document.getElementById('grant-'+id).value,10)||0;
-    students[id].tickets += n; await setShared('gacha-students', students); toast('已發放！'); render();
+    students[id].tickets += n; await saveStudentToStorage(id, students[id]); toast('已發放！'); render();
   });
   document.querySelectorAll('[data-action="deduct"]').forEach(b=> b.onclick=async ()=>{
     const id=b.dataset.id; const n = parseInt(document.getElementById('grant-'+id).value,10)||0;
     students[id].tickets = Math.max(0, (students[id].tickets||0) - n);
-    await setShared('gacha-students', students); toast('已扣除！'); render();
+    await saveStudentToStorage(id, students[id]); toast('已扣除！'); render();
   });
   document.querySelectorAll('[data-action="book"]').forEach(b=> b.onclick=()=> openAdminBookModal(b.dataset.id));
   document.querySelectorAll('[data-action="link"]').forEach(b=> b.onclick=()=>{
@@ -1085,7 +1121,7 @@ function openAdminBookModal(id){
     cb.onchange = async ()=>{
       s.inventory = s.inventory||{};
       s.inventory[cb.dataset.id] = cb.checked ? 1 : 0;
-      await setShared('gacha-students', students);
+      await saveStudentToStorage(id, s);
     };
   });
 }

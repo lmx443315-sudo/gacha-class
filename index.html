@@ -484,13 +484,20 @@ document.addEventListener('visibilitychange', async ()=>{
     return;
   }
   storageAvailable = true; // 先假設連得上，讓下面的請求真的送出去，再用 reachable 的結果做最終確認
-  const [reachable] = await Promise.all([checkApiReachable(), loadAll()]);
-  if(!reachable){
+  const TIMEOUT_MS = 15000;
+  const timeoutPromise = new Promise(resolve=>setTimeout(()=>resolve('__TIMEOUT__'), TIMEOUT_MS));
+  const result = await Promise.race([
+    Promise.all([checkApiReachable(), loadAll()]).then(r=>r[0]),
+    timeoutPromise
+  ]);
+  if(result === '__TIMEOUT__' || !result){
     storageAvailable = false;
     app.innerHTML = `<div class="panel" style="border-color:var(--magenta);margin-top:40px">
-      <h2 class="pixel" style="font-size:16px;color:var(--magenta)">⚠️ 連不到資料庫</h2>
+      <h2 class="pixel" style="font-size:16px;color:var(--magenta)">⚠️ ${result==='__TIMEOUT__'?'連線逾時':'連不到資料庫'}</h2>
       <p style="color:var(--text);font-size:20px;line-height:1.6">
-      目前連不上後端的 Google Apps Script API，可能是網址錯誤、部署權限沒設成「任何人」、或網路連線問題。請確認 Apps Script 已經部署成 Web App，且存取權限是「任何人」。
+      ${result==='__TIMEOUT__'
+        ? '連了超過 15 秒還沒回應，可能是 Google Apps Script 忙線中或網路不穩。請重新整理再試一次；如果一直發生，麻煩把這個狀況告訴老師（開發者）。'
+        : '目前連不上後端的 Google Apps Script API，可能是網址錯誤、部署權限沒設成「任何人」、或網路連線問題。請確認 Apps Script 已經部署成 Web App，且存取權限是「任何人」。'}
       </p>
     </div>`;
     return;
